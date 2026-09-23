@@ -3,7 +3,7 @@
 Backend/database handoff for the frontend developer, built from the design spec
 (`Household hardship allocation model — design spec.docx`) and the kickoff
 call. There is no real applicant data yet, so this ships with a synthetic,
-internally-consistent dataset — 3,500 households, ~11,800 applications across
+internally-consistent dataset — 3,500 households, ~7,100 applications across
 24 monthly funding cycles — sized to build and demo a real dashboard against.
 
 ## What's here
@@ -46,9 +46,12 @@ database and drop `--skip-schema` — it will create everything itself.
 
 This isn't just a schema on paper — schema.sql, views.sql, and all nine CSVs
 have been loaded end-to-end into a real Postgres 16 instance and checked for:
-budget-adherence sanity (award totals track each cycle's fixed budget),
+budget adherence (historical award totals land at roughly 80–105% of each
+cycle's fixed budget — the simulated caseworkers' review and audit approvals
+can overshoot slightly, as real ones do),
 referential integrity (every household has exactly one survey and one
-protected-attributes row), and value ranges (no negative incomes, completeness
+protected-attributes row), time ordering (every household registers and is
+surveyed before its first application), and value ranges (no negative incomes, completeness
 scores in [0,1], etc). See `docs/DATA_DICTIONARY.md` for the full rundown.
 
 ## Dashboard-ready views (`db/views.sql`)

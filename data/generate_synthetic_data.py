@@ -58,29 +58,50 @@ N_CYCLES = 24
 TODAY = date(2026, 9, 22)
 
 # ---------------------------------------------------------------------------
-# 1. Areas (Rwanda's 30 districts; a handful flagged urban)
+# 1. Areas (Rwanda's 30 districts; a handful flagged urban; province = region)
 # ---------------------------------------------------------------------------
-DISTRICTS = [
-    ("Nyarugenge", "urban"), ("Gasabo", "urban"), ("Kicukiro", "urban"),
-    ("Musanze", "urban"), ("Rubavu", "urban"), ("Huye", "urban"),
-    ("Bugesera", "rural"), ("Gatsibo", "rural"), ("Kayonza", "rural"),
-    ("Kirehe", "rural"), ("Ngoma", "rural"), ("Nyagatare", "rural"),
-    ("Rwamagana", "rural"), ("Burera", "rural"), ("Gakenke", "rural"),
-    ("Gicumbi", "rural"), ("Rulindo", "rural"), ("Gisagara", "rural"),
-    ("Kamonyi", "rural"), ("Muhanga", "rural"), ("Nyamagabe", "rural"),
-    ("Nyanza", "rural"), ("Nyaruguru", "rural"), ("Ruhango", "rural"),
-    ("Karongi", "rural"), ("Ngororero", "rural"), ("Nyabihu", "rural"),
-    ("Nyamasheke", "rural"), ("Rusizi", "rural"), ("Rutsiro", "rural"),
+DISTRICTS = [  # (district, urban/rural, province)
+    ("Nyarugenge", "urban", "Kigali"),
+    ("Gasabo", "urban", "Kigali"),
+    ("Kicukiro", "urban", "Kigali"),
+    ("Musanze", "urban", "Northern"),
+    ("Rubavu", "urban", "Western"),
+    ("Huye", "urban", "Southern"),
+    ("Bugesera", "rural", "Eastern"),
+    ("Gatsibo", "rural", "Eastern"),
+    ("Kayonza", "rural", "Eastern"),
+    ("Kirehe", "rural", "Eastern"),
+    ("Ngoma", "rural", "Eastern"),
+    ("Nyagatare", "rural", "Eastern"),
+    ("Rwamagana", "rural", "Eastern"),
+    ("Burera", "rural", "Northern"),
+    ("Gakenke", "rural", "Northern"),
+    ("Gicumbi", "rural", "Northern"),
+    ("Rulindo", "rural", "Northern"),
+    ("Gisagara", "rural", "Southern"),
+    ("Kamonyi", "rural", "Southern"),
+    ("Muhanga", "rural", "Southern"),
+    ("Nyamagabe", "rural", "Southern"),
+    ("Nyanza", "rural", "Southern"),
+    ("Nyaruguru", "rural", "Southern"),
+    ("Ruhango", "rural", "Southern"),
+    ("Karongi", "rural", "Western"),
+    ("Ngororero", "rural", "Western"),
+    ("Nyabihu", "rural", "Western"),
+    ("Nyamasheke", "rural", "Western"),
+    ("Rusizi", "rural", "Western"),
+    ("Rutsiro", "rural", "Western"),
 ]
 
 areas = []
-for i, (name, ur) in enumerate(DISTRICTS):
+for i, (name, ur, province) in enumerate(DISTRICTS):
     code = f"AR{i+1:03d}"
     base_deprivation = RNG.uniform(0.55, 0.85) if ur == "rural" else RNG.uniform(0.15, 0.45)
     areas.append({
         "area_code": code,
         "area_name": name,
         "urban_rural": ur,
+        "region": province,
         "area_deprivation_index": round(base_deprivation, 3),
         "area_poverty_rate": round(np.clip(base_deprivation + RNG.normal(0, 0.05), 0.03, 0.9), 4),
         "distance_to_services_km": round(RNG.uniform(1, 4) if ur == "urban" else RNG.uniform(3, 25), 2),
@@ -97,7 +118,7 @@ area_weights = np.array([3.5 if a["urban_rural"] == "urban" else 1.0 for a in ar
 area_weights = area_weights / area_weights.sum()
 
 # ---------------------------------------------------------------------------
-# 2. Funding cycles: 12 trailing months, modest budget relative to demand
+# 2. Funding cycles: N_CYCLES trailing months, modest budget relative to demand
 #    on purpose, so allocation is a real ranking-under-budget problem.
 # ---------------------------------------------------------------------------
 cycles = []
@@ -159,12 +180,14 @@ severity = np.clip(1.8 * (area_effect - 0.5) + individual_effect, -3, 3)  # z-li
 severity_pct = (severity - severity.min()) / (severity.max() - severity.min())
 
 households = []
+registered_on = {}  # household_id -> date; nobody applies before registering
 for i in range(N_HOUSEHOLDS):
     reg_offset_days = int(RNG.integers(30, 900))
+    registered_on[household_ids[i]] = TODAY - timedelta(days=reg_offset_days)
     households.append({
         "household_id": household_ids[i],
         "area_code": household_area[i],
-        "registered_at": (TODAY - timedelta(days=reg_offset_days)).isoformat(),
+        "registered_at": registered_on[household_ids[i]].isoformat(),
         "notes": "",
     })
 
@@ -261,7 +284,10 @@ for i in range(N_HOUSEHOLDS):
 
     consumption_pc = round(max(1_500, (monthly_income * 0.75 + 5_000) / max(household_size, 1) * math.exp(RNG.normal(0, 0.08))), 2)
 
-    survey_date = (TODAY - timedelta(days=int(RNG.integers(1, 400)))).isoformat()
+    # intake survey, taken in the fortnight before registration completes, so
+    # every application is scored on survey data that existed when it was
+    # submitted (features.build_features joins point-in-time on this date)
+    survey_date = (registered_on[household_ids[i]] - timedelta(days=int(RNG.integers(0, 15)))).isoformat()
 
     surveys.append({
         "household_id": household_ids[i], "survey_date": survey_date,
@@ -331,6 +357,8 @@ for cycle in cycles:
     # --- decide who applies this cycle ---
     applicants_this_cycle = []
     for hid in household_ids:
+        if registered_on[hid] > cycle_end:
+            continue
         pct = severity_by_household[hid]
         p = 0.05 + 0.20 * pct
         if last_status[hid] in ("deferred", "appealed"):
@@ -352,7 +380,8 @@ for cycle in cycles:
         sv = survey_by_household[hid]
         pct = severity_by_household[hid]
         urban = urban_by_household[hid]
-        submitted_at = cycle_start + timedelta(days=int(RNG.integers(0, (cycle_end - cycle_start).days + 1)))
+        window_start = max(cycle_start, registered_on[hid])
+        submitted_at = window_start + timedelta(days=int(RNG.integers(0, (cycle_end - window_start).days + 1)))
 
         deficit = max(0.0, sv["essential_costs"] - sv["monthly_income"])
 
@@ -502,8 +531,8 @@ print(f"Generated: {len(households)} households, {len(applications)} application
 # ---------------------------------------------------------------------------
 def write_csv(filename, rows, fieldnames):
     path = OUT_DIR / filename
-    with open(path, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames, lineterminator="\n")
         writer.writeheader()
         for row in rows:
             writer.writerow(row)

@@ -71,6 +71,7 @@ CREATE TABLE area_reference (
     area_code                  VARCHAR(20) PRIMARY KEY,
     area_name                  TEXT NOT NULL,
     urban_rural                urban_rural_enum NOT NULL,
+    region                     VARCHAR(50),        -- province; audit dimension only, never a feature
     area_deprivation_index     NUMERIC(6, 3),      -- prefer a published index over raw postcode
     area_poverty_rate          NUMERIC(5, 4),      -- smallest geography available
     distance_to_services_km    NUMERIC(6, 2),      -- to nearest job centre / clinic / bank

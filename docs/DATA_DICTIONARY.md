@@ -14,6 +14,7 @@ Area-level PMT augmentation. One row per district/area.
 | `area_code` | PK | Stable join key |
 | `area_name` | text | Human-readable |
 | `urban_rural` | enum | `urban` / `rural` — PMT weights differ sharply between them |
+| `region` | text | Province (Kigali / Northern / Southern / Eastern / Western). **Audit dimension only — never a model feature** (design spec) |
 | `area_deprivation_index` | numeric | Prefer this over raw postcode/address |
 | `area_poverty_rate` | numeric | Smallest geography available |
 | `distance_to_services_km` | numeric | To nearest job centre / clinic / bank |
