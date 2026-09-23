@@ -18,7 +18,7 @@ import pandas as pd
 # excluded as a raw feature per the design spec — use it to stratify
 # (train separate urban/rural models) or to audit, not as a pooled feature.
 NEVER_FEATURES = [
-    "urban_rural", "caseworker_id", "status", "household_id", "area_code",
+    "urban_rural", "region", "caseworker_id", "status", "household_id", "area_code",
     "application_id", "survey_id", "cycle_id", "submitted_at", "created_at",
     "registered_at", "survey_date", "notes", "area_name",
 ]
@@ -39,9 +39,8 @@ def build_features(households: pd.DataFrame, surveys: pd.DataFrame,
     train on.
     """
     df = (
-        applications
+        _survey_as_of_submission(applications, surveys)
         .merge(households[["household_id", "area_code"]], on="household_id", how="left")
-        .merge(surveys, on="household_id", how="left", suffixes=("", "_survey"))
         .merge(area, on="area_code", how="left", suffixes=("", "_area"))
     )
 
@@ -62,6 +61,36 @@ def build_features(households: pd.DataFrame, surveys: pd.DataFrame,
     df["asset_index"] = _first_pc(df[asset_cols])
 
     return df
+
+
+def _survey_as_of_submission(applications: pd.DataFrame, surveys: pd.DataFrame) -> pd.DataFrame:
+    """Attach to each application the household's most recent survey taken
+    on or before the day it was submitted.
+
+    A plain merge on household_id is wrong twice over: it lets an
+    application be scored on a survey taken after it was submitted (label
+    leakage from the future), and once a household has more than one survey
+    wave it duplicates that household's applications. Applications with no
+    survey yet keep NaN survey fields — LightGBM handles missing values, and
+    the count is visible via `survey_date.isna()`.
+    """
+    def _day(s: pd.Series) -> pd.Series:
+        # TIMESTAMPTZ arrives tz-aware, DATE arrives as datetime.date; compare
+        # both as naive calendar days so a same-day survey counts as prior.
+        s = pd.to_datetime(s, utc=True)
+        return s.dt.tz_localize(None).dt.normalize().astype("datetime64[ns]")
+
+    apps = applications.copy()
+    apps["_order"] = np.arange(len(apps))
+    apps["_asof"] = _day(apps["submitted_at"])
+    sv = surveys.copy()
+    sv["_asof"] = _day(sv["survey_date"])
+
+    merged = pd.merge_asof(
+        apps.sort_values("_asof"), sv.sort_values("_asof"),
+        on="_asof", by="household_id", direction="backward", suffixes=("", "_survey"),
+    )
+    return merged.sort_values("_order").drop(columns=["_order", "_asof"]).reset_index(drop=True)
 
 
 def add_poverty_gap(df: pd.DataFrame, poverty_line: float) -> pd.DataFrame:
