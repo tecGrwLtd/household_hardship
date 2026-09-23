@@ -103,15 +103,30 @@ model-safe (noted below).
 | `status` | Workflow/audit state, **never a model label**. No `was_approved` column exists anywhere in this schema |
 | `caseworker_id` | Never a feature — see `caseworkers` |
 
-## `model_scores`
+## `model_versions`
 
-Output of the need model + allocation rule, one row per application per
-scoring run (`model_version` distinguishes re-runs). Empty until
-`backend/ml/run_pipeline.py` has been run against a cycle.
+Registry of need-model versions. `python -m backend.ml train` adds a
+`candidate`; `activate` makes it the single `active` version (a partial
+unique index enforces one) and retires the previous one. A fresh database
+starts with `rules-v0` — the transparent rule-based placeholder — active.
 
 | Column | Notes |
 |---|---|
-| `need_lo`, `need_mid`, `need_hi` | 10th/50th/90th percentile prediction interval |
+| `kind` | `lgbm_quantile` (trained) or `rules` (placeholder) |
+| `status` | `candidate / active / retired` |
+| `artifact_path` | `models/<version>/` relative to the project root; NULL for `rules` |
+| `data_hash` | sha256 of the exact training matrix — reproducibility |
+| `metrics` | The full evaluation report the version was judged on, including `gates.passed` |
+
+## `model_scores`
+
+Output of the need model + allocation rule, one row per application per
+scoring run (`model_version` distinguishes re-runs). Written by
+`python -m backend.ml score`.
+
+| Column | Notes |
+|---|---|
+| `need_lo`, `need_mid`, `need_hi` | Prediction interval (10th/90th percentile, conformally widened) and the central estimate used for ranking |
 | `cutoff` | The budget cutoff in effect when this was scored. NULL when the budget covered every application in the cycle (nobody deferred) |
 | `band` | `auto_approve / human_review / defer / audit_approve` |
 | `top_shap_features` | JSON array of `[feature, shap_value]` pairs for the top drivers of this score — this is what a caseworker-facing "why this score" explanation renders from |
@@ -137,7 +152,8 @@ group, disaggregated by protected attribute and group value, with a
 `gap_vs_best` column so a dashboard can flag the largest disparities directly
 rather than requiring someone to eyeball a table.
 
-Computed on out-of-fold predictions (areas the model never trained on), not
+Written by `python -m backend.ml train`, tagged with the candidate's
+`model_version`. Computed on out-of-fold predictions (areas the model never trained on), not
 the deployed model's in-sample scores. Rows with `cycle_id` NULL pool every
 cycle in the run — those are the numbers to judge; per-cycle rows are for
 trends only. Groups with fewer than 20 bottom-decile applicants are omitted

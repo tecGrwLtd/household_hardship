@@ -19,9 +19,12 @@ db/
 data/
   generate_synthetic_data.py   Regenerate the synthetic dataset (e.g. with more rows, a new seed)
 backend/ml/
-  features.py, model.py, allocate.py, audit.py, run_pipeline.py
-  Runnable version of the design spec's modelling pipeline, trained and
-  validated against the synthetic dataset (see backend/ml/README.md)
+  The need model: train / evaluate / activate / score from the command line
+  (python -m backend.ml ...), with baselines, a rule-based placeholder that
+  is live until a trained model passes its gates, and a model registry
+  (see backend/ml/README.md)
+tests/
+  pytest suite (no database needed)
 docs/
   DATA_DICTIONARY.md  Every table and column, with notes on what's safe to use where
 ```
@@ -41,6 +44,18 @@ gives you a truly clean slate.)
 
 If you're not using Docker, point `load_data.py` at any Postgres 14+
 database and drop `--skip-schema` — it will create everything itself.
+
+Then score the applications — with the rule-based placeholder straight
+away, or train, activate and score with the real model:
+
+```bash
+cd ..                                   # project root
+pip install -r requirements.txt
+python -m backend.ml score              # placeholder (rules-v0) is active on a fresh database
+python -m backend.ml train              # prints the evaluation and the new version's name
+python -m backend.ml activate <version>
+python -m backend.ml score
+```
 
 ## What's already verified
 
@@ -66,16 +81,16 @@ Built directly from what was asked for in the kickoff call:
 - **`v_monthly_applications`** — applicant count per month x need category
   (plus its `support_group`), with the current decision-band mix
   (auto-approve / human review / defer / audit-approve). The band columns
-  are all zero until the ML pipeline has scored a cycle (see `backend/ml/`)
+  are all zero until applications have been scored (`python -m backend.ml score`)
   — that's expected on a fresh load.
 - **`v_repeat_support`** — per application: repeat *applicant* (first-time /
   repeat within 1 year / over 1 year) and repeat *beneficiary* (never
   helped / helped within 1 year / over 1 year, from prior awards).
+- **`v_cycle_summary`** — one row per funding cycle: applications, repeat
+  applications, total awarded vs. budget.
 
 The grouping of the eight need categories into the four support groups
 lives in one SQL function, `support_group()`, at the top of `views.sql`.
-- **`v_cycle_summary`** — one row per funding cycle: applications, repeat
-  applications, total awarded vs. budget.
 
 ## Important modelling constraints baked into the schema
 

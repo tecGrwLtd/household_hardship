@@ -29,8 +29,8 @@ complicated, all I want to show is that it works".
 - **Target:** `poverty_gap = max(0, poverty_line − consumption_pc)` (spec option A). Higher = needier.
 - **Training objective:** welfare-weighted loss (aversion 1.5) — missing a destitute household costs more than missing a borderline one.
 - **Validation:** GroupKFold on `area_code`, 5 folds.
-- **Intervals:** conformalized quantile regression so the 80% interval actually covers 78–82%.
-- **Explanations:** SHAP top-5 drivers per application; monotone constraints on features whose direction is not in doubt.
+- **Intervals:** quantile models widened by cross-conformal calibration so the 80% interval actually covers 78–82%.
+- **Explanations:** SHAP top-5 drivers per application; the central estimate is a monotone-constrained Huber model so need never rises with income or falls with a new shock (LightGBM cannot constrain quantile models).
 - **Baselines it must beat:** ridge-regression PMT, and ranking by `monthly_deficit` alone.
 - **Not in v1:** separate urban/rural models, selection-bias reweighting, model-vs-caseworker (contraction) evaluation.
 
@@ -48,7 +48,8 @@ penalise people for having needed help before.
 | Subgroup gap (max − min exclusion error) across ethnicity, gender of head, disability, age band, urban/rural, region, need category, application channel, referral source | Fairness gate | Agree before launch |
 | Interval coverage | Calibration | 78–82% |
 | Welfare-weighted pinball loss | Training objective | Beats both baselines |
-| Spearman rank correlation (predicted vs true need) | Ranking quality | Supporting |
+| Spearman rank correlation among households below the poverty line | Ranking quality | Beats both baselines |
+| Wrong-direction responses (income, costs, food insecurity, job loss) | Defensibility | < 5% of households |
 | Inclusion error | Report only | — |
 | Band volumes | Sanity | auto 25–40%, review 15–30%, defer 35–55% |
 | Override rate | Review is real | > 5% |
@@ -70,7 +71,7 @@ penalise people for having needed help before.
 ## Phases
 
 - [x] **Phase 0 — Foundations.** (done 23 Sep 2026; also fixed inverted welfare weights) Point-in-time survey join; realistic survey dates in the generator; allocation edge cases + budget check; full audit dimensions on out-of-fold predictions; dashboard support-type grouping; README corrections; pytest suite.
-- [ ] **Phase 1 — ML pipeline v1.** `train` / `evaluate` / `score` CLI; baselines; monotone constraints; model artifact + metadata; `model_versions` table; metrics report.
+- [x] **Phase 1 — ML pipeline v1.** (done 23 Sep 2026) `train` / `evaluate` / `activate` / `score` CLI; ridge-PMT and deficit baselines; rule-based placeholder live from day one; model artifact + metadata; `model_versions` registry with activation gates; metrics report. Changes from the plan: monotone constraints sit on a Huber central estimate (LightGBM refuses them on quantile objectives); calibration is cross-conformal; ranking is judged among the poor; `asset_index` is now fitted once and stored with the model (it used to be recomputed per batch).
 - [ ] **Phase 2 — Backend API.** FastAPI: data entry (households, surveys, applications), cycles + allocation, review queue + overrides, dashboard endpoints, model management; placeholder scorer + active-model loader; demo admin auth; Docker Compose for API + DB.
 - [ ] **Phase 3 — Monitoring + repeat model.** Repeat-support classifier; monthly drift job; override-rate and fairness endpoints.
 - [ ] **Phase 4 — Frontend.** Dashboard, data-entry forms, platform management, on top of the Phase 2 API.
