@@ -8,5 +8,4 @@ pandas>=2.0
 
 # Modelling
 lightgbm>=4.0
-shap>=0.44
 scikit-learn>=1.3

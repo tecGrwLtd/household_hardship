@@ -43,24 +43,66 @@ def build_features(households: pd.DataFrame, surveys: pd.DataFrame,
         .merge(households[["household_id", "area_code"]], on="household_id", how="left")
         .merge(area, on="area_code", how="left", suffixes=("", "_area"))
     )
+    return add_derived_features(df)
 
+
+def add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
+    """The spec's derived features. Strictly row-wise — each row's values
+    depend on that row alone, so scoring one application gives the same
+    answer as scoring it inside a batch. (asset_index is the exception that
+    proves the rule: it needs loadings fitted on training data, so it lives
+    in AssetIndex, owned by the model.)"""
+    df = df.copy()
     df["monthly_deficit"] = df["essential_costs"] - df["monthly_income"]
     df["deficit_ratio"] = df["monthly_deficit"] / df["essential_costs"].clip(lower=1)
     df["request_closes_gap"] = (df["amount_requested"] >= df["monthly_deficit"]).astype(int)
     df["crowding"] = df["household_size"] / df["rooms"].clip(lower=1)
     df["income_volatility"] = df["income_std_12m"] / df["monthly_income"].clip(lower=1)
 
-    shock_cols = [c for c in df.columns if c.startswith("shock_")]
+    shock_cols = [c for c in df.columns if c.startswith("shock_") and c != "shock_count_12m"]
     df["shock_count_12m"] = df[shock_cols].fillna(False).astype(int).sum(axis=1)
 
     df["dependency_ratio"] = (
         (df["children_under_5"] + df["members_over_65"]) / df["household_size"].clip(lower=1)
     )
-
-    asset_cols = [c for c in df.columns if c.startswith("asset_")]
-    df["asset_index"] = _first_pc(df[asset_cols])
-
     return df
+
+
+class AssetIndex:
+    """First principal component of asset ownership — the standard PMT asset
+    index. Fitted ONCE on training rows and stored with the model: computing
+    it on whatever rows happen to be scored would change its scale (and
+    possibly its sign) from batch to batch, and make it zero for a single
+    application. Oriented so that higher = owns more."""
+
+    def __init__(self, columns: list[str] | None = None, mean: list[float] | None = None,
+                 loadings: list[float] | None = None):
+        self.columns, self.mean, self.loadings = columns or [], mean or [], loadings or []
+
+    @staticmethod
+    def _matrix(df: pd.DataFrame, columns: list[str]) -> np.ndarray:
+        return df.reindex(columns=columns).fillna(False).astype(float).values
+
+    def fit(self, df: pd.DataFrame) -> "AssetIndex":
+        self.columns = sorted(c for c in df.columns if c.startswith("asset_") and c != "asset_index")
+        x = self._matrix(df, self.columns)
+        mean = x.mean(axis=0)
+        xc = x - mean
+        if xc.shape[0] < 2 or np.allclose(xc, 0):
+            v = np.zeros(len(self.columns))
+        else:
+            _, _, vt = np.linalg.svd(xc, full_matrices=False)
+            v = vt[0] if vt[0].sum() >= 0 else -vt[0]
+        self.mean, self.loadings = mean.tolist(), v.tolist()
+        return self
+
+    def transform(self, df: pd.DataFrame) -> np.ndarray:
+        if not self.columns:
+            return np.zeros(len(df))
+        return (self._matrix(df, self.columns) - np.asarray(self.mean)) @ np.asarray(self.loadings)
+
+    def to_dict(self) -> dict:
+        return {"columns": self.columns, "mean": self.mean, "loadings": self.loadings}
 
 
 def _survey_as_of_submission(applications: pd.DataFrame, surveys: pd.DataFrame) -> pd.DataFrame:
@@ -110,17 +152,6 @@ def add_poverty_gap(df: pd.DataFrame, poverty_line: float) -> pd.DataFrame:
     df = df.copy()
     df["poverty_gap"] = (poverty_line - df["consumption_pc"]).clip(lower=0)
     return df
-
-
-def _first_pc(x: pd.DataFrame) -> np.ndarray:
-    """First principal component of the asset-ownership booleans — the
-    standard PMT asset-index compression, exactly as in the design spec."""
-    xc = x.fillna(False).astype(float).values
-    xc = xc - xc.mean(axis=0)
-    if xc.shape[0] < 2 or np.allclose(xc, 0):
-        return np.zeros(x.shape[0])
-    _, _, vt = np.linalg.svd(xc, full_matrices=False)
-    return xc @ vt[0]
 
 
 def feature_matrix(df: pd.DataFrame, target: str | None = None):

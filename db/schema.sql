@@ -63,6 +63,8 @@ CREATE TYPE decision_band_enum AS ENUM (
     'auto_approve', 'human_review', 'defer', 'audit_approve'
 );
 
+CREATE TYPE model_status_enum AS ENUM ('candidate', 'active', 'retired');
+
 -- ----------------------------------------------------------------------------
 -- REFERENCE DATA
 -- ----------------------------------------------------------------------------
@@ -253,13 +255,40 @@ COMMENT ON COLUMN applications.caseworker_id IS
     'Kept for contraction evaluation (comparing caseworkers of different '
     'strictness on comparable applicants). Never a model feature.';
 
+-- Model registry. Training writes a 'candidate'; activation (after its
+-- evaluation gates pass) makes it the single 'active' version that scores
+-- new applications. Artifacts live on disk at artifact_path
+-- (models/<version>/: model files, metadata.json, metrics.json).
+CREATE TABLE model_versions (
+    model_version   VARCHAR(30) PRIMARY KEY,
+    kind            VARCHAR(20) NOT NULL,           -- 'lgbm_quantile' | 'rules'
+    status          model_status_enum NOT NULL DEFAULT 'candidate',
+    artifact_path   TEXT,                           -- relative to the project root; NULL for 'rules'
+    trained_at      TIMESTAMPTZ,
+    training_rows   INTEGER,
+    data_hash       VARCHAR(64),                    -- sha256 of the exact training matrix
+    metrics         JSONB,                          -- evaluation report incl. gates
+    notes           TEXT,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    activated_at    TIMESTAMPTZ
+);
+CREATE UNIQUE INDEX one_active_model_version ON model_versions (status) WHERE status = 'active';
+COMMENT ON TABLE model_versions IS
+    'Registry of need-model versions. Exactly one is active at a time.';
+
+-- The transparent rule-based placeholder (backend/ml/baselines.py) is live
+-- from day one, so the platform works before any model is trained.
+INSERT INTO model_versions (model_version, kind, status, notes, activated_at)
+VALUES ('rules-v0', 'rules', 'active',
+        'Placeholder scorer: hand-written formula, replace with a trained version.', now());
+
 -- Model output per application per cycle. Multiple rows possible if the
 -- model is re-run (model_version distinguishes them).
 CREATE TABLE model_scores (
     score_id        BIGSERIAL PRIMARY KEY,
     application_id  BIGINT NOT NULL REFERENCES applications(application_id),
     cycle_id        INTEGER NOT NULL REFERENCES funding_cycles(cycle_id),
-    model_version   VARCHAR(30) NOT NULL,
+    model_version   VARCHAR(30) NOT NULL REFERENCES model_versions(model_version),
     need_lo         NUMERIC(12, 2) NOT NULL,   -- 10th percentile (INTERVAL[0])
     need_mid        NUMERIC(12, 2) NOT NULL,   -- median prediction, used for ranking
     need_hi         NUMERIC(12, 2) NOT NULL,   -- 90th percentile (INTERVAL[1])
@@ -303,6 +332,7 @@ CREATE INDEX idx_awards_application_id ON awards(application_id);
 CREATE TABLE fairness_audits (
     audit_id          BIGSERIAL PRIMARY KEY,
     cycle_id          INTEGER REFERENCES funding_cycles(cycle_id),  -- NULL = pooled across all cycles
+    model_version     VARCHAR(30) REFERENCES model_versions(model_version),
     attribute         VARCHAR(30) NOT NULL,   -- e.g. 'ethnicity', 'gender_head', 'urban_rural'
     group_value       VARCHAR(50) NOT NULL,
     n                 INTEGER NOT NULL,

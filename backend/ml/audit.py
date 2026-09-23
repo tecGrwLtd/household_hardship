@@ -1,11 +1,11 @@
-"""Explanation (SHAP) and fairness audit — the two things that make the
-allocation defensible after the fact, not just accurate on average.
+"""Fairness audit — what makes the allocation defensible after the fact,
+not just accurate on average. (Per-decision explanations live on each
+model's explain(); see model.py.)
 """
 from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import shap
 
 # Disaggregation dimensions — the design spec's full list. ethnicity,
 # gender_head, disability and age_band come from protected_attributes
@@ -24,16 +24,6 @@ BOTTOM_QUANTILE = 0.10
 # 50-point gap. Suppressing small cells is also the usual privacy practice.
 # Pool across cycles (cycle_id=None) to get groups large enough to judge.
 MIN_GROUP_N = 20
-
-
-def explain(models: dict, X: pd.DataFrame, top_n: int = 5) -> list[list[tuple]]:
-    explainer = shap.TreeExplainer(models["mid"])
-    vals = explainer.shap_values(X)
-    out = []
-    for row in vals:
-        order = np.argsort(np.abs(row))[::-1][:top_n]
-        out.append([(X.columns[i], float(row[i])) for i in order])
-    return out
 
 
 def bottom_decile_mask(true_welfare) -> np.ndarray:

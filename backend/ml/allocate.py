@@ -84,3 +84,27 @@ def budget_summary(ranked: pd.DataFrame, budget: float) -> dict[str, float]:
         "in_review": float(cost.get("human_review", 0.0)),
         "remaining": float(budget) - committed,
     }
+
+
+SCORE_COLUMNS = ["application_id", "household_id", "need_lo", "need_mid", "need_hi", "amount_requested"]
+
+
+def allocate_all_cycles(scored: pd.DataFrame, funding_cycles: pd.DataFrame,
+                        rng: np.random.Generator) -> tuple[pd.DataFrame, list[dict]]:
+    """Run allocate() per cycle under that cycle's budget. `scored` needs
+    SCORE_COLUMNS + cycle_id; any extra columns ride along onto the result.
+    Returns (all cycles' ranked rows with band + cutoff, per-cycle budget_summary)."""
+    budgets = funding_cycles.set_index("cycle_id")["budget_total"].astype(float)
+    frames, summaries = [], []
+    for cycle_id, cycle_df in scored.groupby("cycle_id"):
+        if cycle_id not in budgets.index:
+            continue
+        ranked, cutoff = allocate(cycle_df[SCORE_COLUMNS], budgets[cycle_id], rng)
+        extra = cycle_df.drop(columns=SCORE_COLUMNS[1:]).set_index("application_id")
+        ranked = ranked.join(extra, on="application_id")
+        ranked["cutoff"] = cutoff
+        frames.append(ranked)
+        summaries.append({"cycle_id": cycle_id, **budget_summary(ranked, budgets[cycle_id])})
+    if not frames:
+        return pd.DataFrame(columns=[*SCORE_COLUMNS, "cycle_id", "band", "cutoff"]), summaries
+    return pd.concat(frames, ignore_index=True), summaries

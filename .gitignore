@@ -19,3 +19,7 @@ Thumbs.db
 # Source documents (client call notes, design spec) — keep out of the public repo
 *.pdf
 *.docx
+
+# Trained model artifacts (models/<version>/) — rebuilt with `python -m backend.ml train`
+models/*
+!models/.gitkeep
