@@ -1,0 +1,132 @@
+erDiagram
+    AREA_REFERENCE ||--o{ HOUSEHOLDS : "located in"
+    HOUSEHOLDS ||--o{ HOUSEHOLD_SURVEYS : "surveyed"
+    HOUSEHOLDS ||--o| PROTECTED_ATTRIBUTES : "audit-only"
+    HOUSEHOLDS ||--o{ APPLICATIONS : "submits"
+    HOUSEHOLDS ||--o{ AWARDS : "receives"
+    FUNDING_CYCLES ||--o{ APPLICATIONS : "scoped to"
+    FUNDING_CYCLES ||--o{ MODEL_SCORES : "scoped to"
+    FUNDING_CYCLES ||--o{ FAIRNESS_AUDITS : "scoped to"
+    APPLICATIONS ||--o{ MODEL_SCORES : "scored by"
+    APPLICATIONS ||--o{ APPLICATION_REVIEWS : "reviewed by"
+    APPLICATIONS ||--o| AWARDS : "may result in"
+    CASEWORKERS ||--o{ APPLICATIONS : "handles (never a feature)"
+    CASEWORKERS ||--o{ APPLICATION_REVIEWS : "performs"
+
+    AREA_REFERENCE {
+        varchar area_code PK
+        text area_name
+        enum urban_rural
+        numeric area_deprivation_index
+        numeric area_poverty_rate
+        numeric distance_to_services_km
+        numeric local_unemployment_rate
+        numeric local_housing_cost_index
+    }
+
+    FUNDING_CYCLES {
+        int cycle_id PK
+        date period_start
+        date period_end
+        numeric budget_total
+        varchar budget_currency
+    }
+
+    CASEWORKERS {
+        int caseworker_id PK
+        text display_name
+        varchar region
+        bool active
+    }
+
+    HOUSEHOLDS {
+        uuid household_id PK
+        varchar area_code FK
+        timestamptz registered_at
+    }
+
+    HOUSEHOLD_SURVEYS {
+        bigint survey_id PK
+        uuid household_id FK
+        date survey_date
+        smallint household_size
+        smallint children_under_5
+        smallint members_over_65
+        bool female_headed
+        enum education_head
+        enum tenure
+        numeric monthly_income
+        numeric essential_costs
+        smallint food_security_score
+        bool disability_in_household
+        numeric consumption_pc "training target"
+        "... 25+ more PMT fields, see data dictionary"
+    }
+
+    PROTECTED_ATTRIBUTES {
+        uuid household_id PK_FK
+        varchar ethnicity
+        varchar gender_head
+        varchar disability
+        varchar age_band
+        varchar religion
+        varchar nationality
+        varchar immigration_status
+        "AUDIT ONLY — never join into ML features"
+    }
+
+    APPLICATIONS {
+        bigint application_id PK
+        uuid household_id FK
+        int cycle_id FK
+        int caseworker_id FK
+        timestamptz submitted_at
+        numeric amount_requested
+        enum need_category
+        int prior_applications_count
+        int days_since_last_application
+        enum application_channel
+        enum status
+    }
+
+    MODEL_SCORES {
+        bigint score_id PK
+        bigint application_id FK
+        int cycle_id FK
+        varchar model_version
+        numeric need_lo
+        numeric need_mid
+        numeric need_hi
+        numeric cutoff
+        enum band
+        jsonb top_shap_features
+    }
+
+    APPLICATION_REVIEWS {
+        bigint review_id PK
+        bigint application_id FK
+        int caseworker_id FK
+        enum initial_band
+        varchar final_decision
+        bool overridden
+    }
+
+    AWARDS {
+        bigint award_id PK
+        bigint application_id FK
+        uuid household_id FK
+        numeric award_amount
+        date award_date
+        enum need_category
+        int outcome_followup_days
+    }
+
+    FAIRNESS_AUDITS {
+        bigint audit_id PK
+        int cycle_id FK
+        varchar attribute
+        varchar group_value
+        int n
+        numeric exclusion_error
+        numeric gap_vs_best
+    }

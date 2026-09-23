@@ -1,0 +1,11 @@
+# Database
+psycopg2-binary>=2.9
+
+# Data generation / pipeline
+numpy>=1.26
+pandas>=2.0
+
+# Modelling
+lightgbm>=4.0
+shap>=0.44
+scikit-learn>=1.3

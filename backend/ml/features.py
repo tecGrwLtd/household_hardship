@@ -1,0 +1,127 @@
+"""Feature pipeline — the runnable version of the design spec's build_features().
+
+Kept as close to the spec's original skeleton as the real schema allows.
+Key difference from the skeleton: applications don't carry area_code
+directly, so we join through households first. Protected attributes are
+never joined in here at all — they live in a separate table
+(protected_attributes) that this module never reads, so there's no risk of
+"exclude the columns after the fact" being the only thing standing between
+the model and a protected attribute.
+"""
+from __future__ import annotations
+
+import numpy as np
+import pandas as pd
+
+# Columns that must never reach the model, beyond whatever protected_attributes
+# already keeps out by simply not being joined in. urban_rural is deliberately
+# excluded as a raw feature per the design spec — use it to stratify
+# (train separate urban/rural models) or to audit, not as a pooled feature.
+NEVER_FEATURES = [
+    "urban_rural", "caseworker_id", "status", "household_id", "area_code",
+    "application_id", "survey_id", "cycle_id", "submitted_at", "created_at",
+    "registered_at", "survey_date", "notes", "area_name",
+]
+# columns that slip through merges with a suffix (created_at_survey,
+# updated_at, ...) or are simply never meant to reach the model regardless
+# of naming — dropped by prefix rather than exact name.
+NEVER_FEATURE_PREFIXES = ("created_at", "updated_at", "registered_at", "survey_date", "submitted_at")
+
+ID_COLUMNS = ["application_id", "household_id", "area_code", "cycle_id"]
+
+
+def build_features(households: pd.DataFrame, surveys: pd.DataFrame,
+                    applications: pd.DataFrame, area: pd.DataFrame) -> pd.DataFrame:
+    """Merge applications -> households -> surveys -> area, then compute the
+    derived features called out in the design spec. Returns a DataFrame that
+    still carries ID columns and `status` — callers select the final model
+    matrix with `feature_matrix()` below, once they've decided which rows to
+    train on.
+    """
+    df = (
+        applications
+        .merge(households[["household_id", "area_code"]], on="household_id", how="left")
+        .merge(surveys, on="household_id", how="left", suffixes=("", "_survey"))
+        .merge(area, on="area_code", how="left", suffixes=("", "_area"))
+    )
+
+    df["monthly_deficit"] = df["essential_costs"] - df["monthly_income"]
+    df["deficit_ratio"] = df["monthly_deficit"] / df["essential_costs"].clip(lower=1)
+    df["request_closes_gap"] = (df["amount_requested"] >= df["monthly_deficit"]).astype(int)
+    df["crowding"] = df["household_size"] / df["rooms"].clip(lower=1)
+    df["income_volatility"] = df["income_std_12m"] / df["monthly_income"].clip(lower=1)
+
+    shock_cols = [c for c in df.columns if c.startswith("shock_")]
+    df["shock_count_12m"] = df[shock_cols].fillna(False).astype(int).sum(axis=1)
+
+    df["dependency_ratio"] = (
+        (df["children_under_5"] + df["members_over_65"]) / df["household_size"].clip(lower=1)
+    )
+
+    asset_cols = [c for c in df.columns if c.startswith("asset_")]
+    df["asset_index"] = _first_pc(df[asset_cols])
+
+    return df
+
+
+def add_poverty_gap(df: pd.DataFrame, poverty_line: float) -> pd.DataFrame:
+    """poverty_gap = max(0, poverty_line - consumption_pc) — the design
+    spec's Option A alternative target ("consumption per capita, OR the
+    poverty gap below a threshold").
+
+    Train on this, not raw consumption_pc. consumption_pc is a welfare
+    measure where LOWER means needier; poverty_gap flips that so HIGHER
+    always means needier, which is what allocate() assumes when it ranks
+    descending and awards to the top of the ranking. Training directly on
+    consumption_pc and ranking descending — which is what a first pass at
+    this pipeline did — silently prioritises the LEAST needy applicants.
+    That bug only surfaced by running audit() against ground truth; it
+    would not have thrown an error anywhere.
+    """
+    df = df.copy()
+    df["poverty_gap"] = (poverty_line - df["consumption_pc"]).clip(lower=0)
+    return df
+
+
+def _first_pc(x: pd.DataFrame) -> np.ndarray:
+    """First principal component of the asset-ownership booleans — the
+    standard PMT asset-index compression, exactly as in the design spec."""
+    xc = x.fillna(False).astype(float).values
+    xc = xc - xc.mean(axis=0)
+    if xc.shape[0] < 2 or np.allclose(xc, 0):
+        return np.zeros(x.shape[0])
+    _, _, vt = np.linalg.svd(xc, full_matrices=False)
+    return xc @ vt[0]
+
+
+def feature_matrix(df: pd.DataFrame, target: str | None = None):
+    """Select the final X (and optionally y) for modelling: drop IDs,
+    protected-adjacent columns, and anything not meant to reach the model.
+    Categorical (object) columns are cast to pandas 'category' dtype so
+    LightGBM can split on them natively.
+    """
+    drop_cols = set(NEVER_FEATURES)
+    if target:
+        drop_cols.add(target)
+    # ground-truth columns leak the label regardless of which one is the
+    # active target — drop both whenever they aren't themselves the target
+    for leaky_col in ("consumption_pc", "poverty_gap"):
+        if leaky_col != target:
+            drop_cols.add(leaky_col)
+    drop_cols.update(c for c in df.columns if c.startswith(NEVER_FEATURE_PREFIXES))
+
+    x = df.drop(columns=[c for c in drop_cols if c in df.columns], errors="ignore").copy()
+
+    for col in x.columns:
+        dtype = x[col].dtype
+        is_stringy = (
+            dtype == object
+            or pd.api.types.is_string_dtype(dtype)
+            or (isinstance(dtype, pd.CategoricalDtype) and dtype.categories.dtype == object)
+        )
+        is_boolish = dtype == "bool" or (isinstance(dtype, pd.CategoricalDtype) and dtype.categories.dtype == bool)
+        if is_stringy or is_boolish:
+            x[col] = x[col].astype("category")
+
+    y = df[target] if target else None
+    return x, y
