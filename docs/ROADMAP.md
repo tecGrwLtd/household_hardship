@@ -69,7 +69,7 @@ penalise people for having needed help before.
 
 ## Phases
 
-- [ ] **Phase 0 — Foundations.** Point-in-time survey join; realistic survey dates in the generator; allocation edge cases + budget check; full audit dimensions on out-of-fold predictions; dashboard support-type grouping; README corrections; pytest suite.
+- [x] **Phase 0 — Foundations.** (done 23 Sep 2026; also fixed inverted welfare weights) Point-in-time survey join; realistic survey dates in the generator; allocation edge cases + budget check; full audit dimensions on out-of-fold predictions; dashboard support-type grouping; README corrections; pytest suite.
 - [ ] **Phase 1 — ML pipeline v1.** `train` / `evaluate` / `score` CLI; baselines; monotone constraints; model artifact + metadata; `model_versions` table; metrics report.
 - [ ] **Phase 2 — Backend API.** FastAPI: data entry (households, surveys, applications), cycles + allocation, review queue + overrides, dashboard endpoints, model management; placeholder scorer + active-model loader; demo admin auth; Docker Compose for API + DB.
 - [ ] **Phase 3 — Monitoring + repeat model.** Repeat-support classifier; monthly drift job; override-rate and fairness endpoints.
