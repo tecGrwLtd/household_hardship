@@ -36,21 +36,26 @@ def welfare_weights(need: np.ndarray, aversion: float = 1.5) -> np.ndarray:
     return pct ** aversion + 0.1
 
 
-def cross_validate_need_model(X: pd.DataFrame, y: np.ndarray, groups: pd.Series,
-                               n_splits: int = 5) -> dict[str, np.ndarray]:
-    """Honest out-of-fold predictions via GroupKFold on area_code. Use this
-    for evaluation (coverage, welfare-weighted loss) — never train the
-    models you'll actually deploy on in-sample predictions.
-    """
-    cv = GroupKFold(n_splits=n_splits)
-    oof = {name: np.full(len(y), np.nan) for name in ("lo", "mid", "hi")}
+def out_of_fold_predict(X: pd.DataFrame, y: pd.Series, labelled: np.ndarray,
+                        groups: pd.Series, n_splits: int = 5) -> pd.DataFrame:
+    """Honest predictions for EVERY row via GroupKFold on area_code: each
+    area is predicted by models trained only on labelled rows from other
+    areas. Use this for evaluation — coverage, and the fairness audit, which
+    must see the allocation the model would produce on applicants it never
+    trained on. Never deploy these models; fit_need_model() produces those.
 
-    for train_idx, val_idx in cv.split(X, y, groups=groups):
-        w_train = welfare_weights(y[train_idx])
-        for name, alpha in (("lo", INTERVAL[0]), ("mid", 0.5), ("hi", INTERVAL[1])):
-            model = lgb.LGBMRegressor(objective="quantile", alpha=alpha, verbosity=-1, **LGBM_PARAMS)
-            model.fit(X.iloc[train_idx], y[train_idx], sample_weight=w_train)
-            oof[name][val_idx] = model.predict(X.iloc[val_idx])
+    labelled: boolean mask of rows whose target may be trained on (the
+    selective-labels constraint — approved/audited applicants only). Every
+    row, labelled or not, gets a prediction.
+    """
+    labelled = np.asarray(labelled, dtype=bool)
+    y = np.asarray(y, dtype=float)
+    oof = pd.DataFrame(np.nan, index=X.index, columns=["need_lo", "need_mid", "need_hi"])
+
+    for train_idx, val_idx in GroupKFold(n_splits=n_splits).split(X, groups=groups):
+        fit_idx = train_idx[labelled[train_idx]]
+        models = fit_need_model(X.iloc[fit_idx], y[fit_idx])
+        oof.iloc[val_idx] = predict(models, X.iloc[val_idx]).values
 
     return oof
 

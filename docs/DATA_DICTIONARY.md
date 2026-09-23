@@ -112,7 +112,7 @@ scoring run (`model_version` distinguishes re-runs). Empty until
 | Column | Notes |
 |---|---|
 | `need_lo`, `need_mid`, `need_hi` | 10th/50th/90th percentile prediction interval |
-| `cutoff` | The budget cutoff in effect when this was scored |
+| `cutoff` | The budget cutoff in effect when this was scored. NULL when the budget covered every application in the cycle (nobody deferred) |
 | `band` | `auto_approve / human_review / defer / audit_approve` |
 | `top_shap_features` | JSON array of `[feature, shap_value]` pairs for the top drivers of this score — this is what a caseworker-facing "why this score" explanation renders from |
 
@@ -137,7 +137,13 @@ group, disaggregated by protected attribute and group value, with a
 `gap_vs_best` column so a dashboard can flag the largest disparities directly
 rather than requiring someone to eyeball a table.
 
+Computed on out-of-fold predictions (areas the model never trained on), not
+the deployed model's in-sample scores. Rows with `cycle_id` NULL pool every
+cycle in the run — those are the numbers to judge; per-cycle rows are for
+trends only. Groups with fewer than 20 bottom-decile applicants are omitted
+(`audit.MIN_GROUP_N`): too small to read, and a privacy risk.
+
 ## Dashboard views — see `db/views.sql`
 
-`v_monthly_applications`, `v_repeat_support`, `v_cycle_summary` — described
+`v_monthly_support`, `v_monthly_applications`, `v_repeat_support`, `v_cycle_summary` (and the `support_group()` function) — described
 in the top-level README.

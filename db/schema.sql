@@ -263,7 +263,7 @@ CREATE TABLE model_scores (
     need_lo         NUMERIC(12, 2) NOT NULL,   -- 10th percentile (INTERVAL[0])
     need_mid        NUMERIC(12, 2) NOT NULL,   -- median prediction, used for ranking
     need_hi         NUMERIC(12, 2) NOT NULL,   -- 90th percentile (INTERVAL[1])
-    cutoff          NUMERIC(12, 2) NOT NULL,   -- budget cutoff for this cycle at scoring time
+    cutoff          NUMERIC(12, 2),            -- budget cutoff at scoring time; NULL = budget covered every application
     band            decision_band_enum NOT NULL,
     top_shap_features JSONB,                    -- [["monthly_deficit", 0.42], ...]
     scored_at        TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -302,7 +302,7 @@ CREATE INDEX idx_awards_application_id ON awards(application_id);
 
 CREATE TABLE fairness_audits (
     audit_id          BIGSERIAL PRIMARY KEY,
-    cycle_id          INTEGER NOT NULL REFERENCES funding_cycles(cycle_id),
+    cycle_id          INTEGER REFERENCES funding_cycles(cycle_id),  -- NULL = pooled across all cycles
     attribute         VARCHAR(30) NOT NULL,   -- e.g. 'ethnicity', 'gender_head', 'urban_rural'
     group_value       VARCHAR(50) NOT NULL,
     n                 INTEGER NOT NULL,

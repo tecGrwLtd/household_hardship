@@ -7,9 +7,11 @@ functions over DataFrames — easy to unit test without a live database.
 from __future__ import annotations
 
 import json
+import math
 
 import pandas as pd
 import psycopg2
+from sqlalchemy import create_engine
 
 
 def get_conn(dsn: str):
@@ -17,7 +19,9 @@ def get_conn(dsn: str):
 
 
 def load_raw_tables(dsn: str) -> dict[str, pd.DataFrame]:
-    conn = get_conn(dsn)
+    # pandas only supports SQLAlchemy connectables for read_sql; a raw
+    # psycopg2 connection works but warns on every call.
+    engine = create_engine(dsn)
     try:
         tables = {
             "households": "SELECT * FROM households",
@@ -28,9 +32,10 @@ def load_raw_tables(dsn: str) -> dict[str, pd.DataFrame]:
             "awards": "SELECT * FROM awards",
             "funding_cycles": "SELECT * FROM funding_cycles",
         }
-        return {name: pd.read_sql(sql, conn) for name, sql in tables.items()}
+        with engine.connect() as conn:
+            return {name: pd.read_sql(sql, conn) for name, sql in tables.items()}
     finally:
-        conn.close()
+        engine.dispose()
 
 
 def write_model_scores(dsn: str, scores: pd.DataFrame, model_version: str) -> None:
@@ -43,7 +48,7 @@ def write_model_scores(dsn: str, scores: pd.DataFrame, model_version: str) -> No
             (
                 int(r.application_id), int(r.cycle_id), model_version,
                 float(r.need_lo), float(r.need_mid), float(r.need_hi),
-                float(r.cutoff), r.band,
+                float(r.cutoff) if math.isfinite(r.cutoff) else None, r.band,
                 json.dumps(r.top_shap_features) if r.top_shap_features is not None else None,
             )
             for r in scores.itertuples()
@@ -65,7 +70,7 @@ def write_fairness_audits(dsn: str, audits: pd.DataFrame) -> None:
     try:
         cur = conn.cursor()
         rows = [
-            (int(r.cycle_id), r.attribute, str(r.group), int(r.n), float(r.exclusion_error), float(r.gap_vs_best))
+            (None if pd.isna(r.cycle_id) else int(r.cycle_id), r.attribute, str(r.group), int(r.n), float(r.exclusion_error), float(r.gap_vs_best))
             for r in audits.itertuples()
         ]
         cur.executemany(
