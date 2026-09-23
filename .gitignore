@@ -15,3 +15,7 @@ Thumbs.db
 # Local artefacts
 *.log
 .ipynb_checkpoints/
+
+# Source documents (client call notes, design spec) — keep out of the public repo
+*.pdf
+*.docx
