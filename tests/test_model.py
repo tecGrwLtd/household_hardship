@@ -111,3 +111,16 @@ def test_central_estimate_never_rises_with_income():
     richer["monthly_deficit"] = richer["essential_costs"] - richer["monthly_income"]
     richer["deficit_ratio"] = richer["monthly_deficit"] / richer["essential_costs"]
     assert (m.predict(richer)["need_mid"] <= m.predict(f)["need_mid"] + 1e-9).all()
+
+
+def test_scoring_survives_fields_left_empty_for_a_whole_batch():
+    """Data entered through the API can leave a field blank for every row
+    scored; the model must still see the training-time column layout."""
+    f, y = _toy()
+    m = LGBMNeedModel(params={"n_estimators": 50}).fit(f, y)
+    blank = f.iloc[:3].copy()
+    blank["shock_job_loss_12m"] = None     # boolean in training
+    blank["need_category"] = None          # categorical in training
+    blank["asset_tv"] = None
+    pred = m.predict(blank)
+    assert pred.notna().all().all()
