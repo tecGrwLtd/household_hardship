@@ -10,7 +10,6 @@ that already has data (rerunning will violate primary key constraints) —
 drop and recreate the database first if you want a clean reload.
 """
 import argparse
-import sys
 from pathlib import Path
 
 import psycopg2
@@ -43,28 +42,25 @@ SEQUENCES = {
 }
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--dsn", required=True, help="Postgres connection string")
-    ap.add_argument("--skip-schema", action="store_true", help="Skip running schema.sql/views.sql (data-only load)")
-    args = ap.parse_args()
-
-    conn = psycopg2.connect(args.dsn)
+def load(dsn: str, skip_schema: bool = False, log=print) -> None:
+    """Apply schema.sql + views.sql (unless skip_schema) and COPY every seed
+    CSV in. Importable, so the API tests can build their own database."""
+    conn = psycopg2.connect(dsn)
     conn.autocommit = False
     cur = conn.cursor()
 
     try:
-        if not args.skip_schema:
-            print("Applying schema.sql ...")
+        if not skip_schema:
+            log("Applying schema.sql ...")
             cur.execute((HERE / "schema.sql").read_text(encoding="utf-8"))
-            print("Applying views.sql ...")
+            log("Applying views.sql ...")
             cur.execute((HERE / "views.sql").read_text(encoding="utf-8"))
             conn.commit()
 
         for table in TABLE_ORDER:
             csv_path = SEED_DIR / f"{table}.csv"
             if not csv_path.exists():
-                print(f"  skip {table}: no CSV found at {csv_path}", file=sys.stderr)
+                log(f"  skip {table}: no CSV found at {csv_path}")
                 continue
             with open(csv_path, "r", encoding="utf-8") as f:
                 header = f.readline().strip()
@@ -78,12 +74,12 @@ def main():
                 )
             conn.commit()
             cur.execute(f"SELECT count(*) FROM {table}")
-            print(f"  loaded {table}: {cur.fetchone()[0]} rows")
+            log(f"  loaded {table}: {cur.fetchone()[0]} rows")
 
         for table, (seq_name, pk_col) in SEQUENCES.items():
             cur.execute(f"SELECT setval('{seq_name}', COALESCE((SELECT MAX({pk_col}) FROM {table}), 1))")
         conn.commit()
-        print("Sequences reset. Load complete.")
+        log("Sequences reset. Load complete.")
 
     except Exception:
         conn.rollback()
@@ -91,6 +87,14 @@ def main():
     finally:
         cur.close()
         conn.close()
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--dsn", required=True, help="Postgres connection string")
+    ap.add_argument("--skip-schema", action="store_true", help="Skip running schema.sql/views.sql (data-only load)")
+    args = ap.parse_args()
+    load(args.dsn, args.skip_schema)
 
 
 if __name__ == "__main__":
