@@ -1,0 +1,52 @@
+# Postgres + the API.
+#
+#   docker compose up -d --build
+#   docker compose run --rm api python db/load_data.py --skip-schema \
+#       --dsn postgresql://hardship_app:hardship_dev_only@db:5432/hardship_platform
+#   docker compose run --rm api python -m backend.ml train      # optional: the placeholder works without it
+#
+# API docs: http://localhost:8080/docs. Passwords and the token secret below
+# are development defaults — set them in the environment (or an .env file)
+# for anything beyond a laptop.
+services:
+  db:
+    image: postgres:16
+    container_name: hardship_platform_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: hardship_platform
+      POSTGRES_USER: hardship_app
+      POSTGRES_PASSWORD: ${HARDSHIP_DB_PASSWORD:-hardship_dev_only}
+    ports:
+      - "5432:5432"
+    volumes:
+      - hardship_db_data:/var/lib/postgresql/data
+      # Run once, in filename order, the first time the container starts with an empty data dir.
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
+      - ./db/views.sql:/docker-entrypoint-initdb.d/02_views.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hardship_app -d hardship_platform"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  api:
+    build: .
+    container_name: hardship_platform_api
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      HARDSHIP_DSN: postgresql://hardship_app:${HARDSHIP_DB_PASSWORD:-hardship_dev_only}@db:5432/hardship_platform
+      HARDSHIP_ADMIN_USER: ${HARDSHIP_ADMIN_USER:-admin}
+      HARDSHIP_ADMIN_PASSWORD: ${HARDSHIP_ADMIN_PASSWORD:-admin-dev-only}
+      HARDSHIP_SECRET: ${HARDSHIP_SECRET:-dev-only-secret-change-me-before-any-real-deployment}
+      HARDSHIP_CORS_ORIGINS: ${HARDSHIP_CORS_ORIGINS:-http://localhost:3000,http://localhost:5173}
+    ports:
+      - "8080:8080"   # 8000 is taken on the dev machine
+    volumes:
+      - ./models:/app/models   # trained model artifacts (python -m backend.ml train writes here)
+
+volumes:
+  hardship_db_data:
