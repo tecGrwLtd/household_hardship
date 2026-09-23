@@ -22,12 +22,18 @@ LGBM_PARAMS = dict(
 )
 
 
-def welfare_weights(y: np.ndarray, aversion: float = 1.5) -> np.ndarray:
+def welfare_weights(need: np.ndarray, aversion: float = 1.5) -> np.ndarray:
     """Errors on the worst-off cost more. aversion=0 -> uniform weighting.
-    This, not plain AUC/RMSE, is why the headline metric in evaluation.py
-    is exclusion error in the bottom decile rather than an aggregate score."""
-    pct = pd.Series(y).rank(pct=True).values
-    return (1.0 - pct) ** aversion + 0.1
+    This, not plain AUC/RMSE, is why the headline metric is exclusion error
+    in the bottom decile rather than an aggregate score.
+
+    `need` is the training target, where HIGHER means worse off (poverty_gap).
+    The spec's skeleton wrote this for consumption_pc, where lower is worse
+    off, as (1 - pct) ** aversion. Once the target became poverty_gap that
+    silently gave the heaviest weight to the least needy — the same sign trap
+    as the target itself (see features.add_poverty_gap)."""
+    pct = pd.Series(need).rank(pct=True).values
+    return pct ** aversion + 0.1
 
 
 def cross_validate_need_model(X: pd.DataFrame, y: np.ndarray, groups: pd.Series,
