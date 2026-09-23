@@ -1,61 +1,80 @@
-# Household Hardship Allocation Platform — Database & Dataset
+# Household Hardship Allocation Platform
 
-Backend/database handoff for the frontend developer, built from the design spec
-(`Household hardship allocation model — design spec.docx`) and the kickoff
-call. There is no real applicant data yet, so this ships with a synthetic,
-internally-consistent dataset — 3,500 households, ~7,100 applications across
-24 monthly funding cycles — sized to build and demo a real dashboard against.
+Backend for the household hardship allocation platform, built from the
+design spec (`Household hardship allocation model — design spec.docx`) and
+the kickoff call: database, need model, and the API the dashboard and
+data-entry screens sit on. There is no real applicant data yet, so this
+ships with a synthetic, internally-consistent dataset — 3,500 households,
+~7,100 applications across 24 monthly funding cycles — sized to build and
+demo a real dashboard against.
 
 ## What's here
 
 ```
+docker-compose.yml    Postgres + API, one command
+Dockerfile            API image
+backend/api/          FastAPI app: data entry, cycle allocation, human review,
+                      dashboard, model management (docs/API.md)
+backend/ml/           The need model: evaluate / train / activate / score from the
+                      command line, baselines, rule-based placeholder, model
+                      registry (backend/ml/README.md)
 db/
   schema.sql          Full PostgreSQL DDL (tables, enums, indexes, constraints)
   views.sql           Dashboard-ready views (see below)
-  erd.mmd             Entity-relationship diagram (Mermaid — paste into mermaid.live or a Markdown viewer)
-  docker-compose.yml  One-command local Postgres, schema pre-applied
+  erd.mmd             Entity-relationship diagram (Mermaid)
   seed/*.csv          The synthetic dataset, one CSV per table
   load_data.py        Loads schema.sql + views.sql + seed/*.csv into any Postgres instance
 data/
-  generate_synthetic_data.py   Regenerate the synthetic dataset (e.g. with more rows, a new seed)
-backend/ml/
-  The need model: train / evaluate / activate / score from the command line
-  (python -m backend.ml ...), with baselines, a rule-based placeholder that
-  is live until a trained model passes its gates, and a model registry
-  (see backend/ml/README.md)
-tests/
-  pytest suite (no database needed)
+  generate_synthetic_data.py   Regenerate the synthetic dataset
+models/               Trained model artifacts (git-ignored; built by `train`)
+tests/                pytest: unit tests (no database) + API tests (need Postgres)
 docs/
+  API.md              API guide for the frontend
   DATA_DICTIONARY.md  Every table and column, with notes on what's safe to use where
+  ROADMAP.md          Plan, decisions and progress
 ```
 
-## Quickest way to get a database running
+## Run it
+
+Everything in Docker — no local Python needed:
 
 ```bash
-cd db
-docker compose up -d          # starts Postgres 16, applies schema.sql + views.sql automatically
-pip install psycopg2-binary
-python3 load_data.py --dsn "postgresql://hardship_app:hardship_dev_only@localhost:5432/hardship_platform" --skip-schema
+docker compose up -d --build     # Postgres 16 (schema + views applied on first boot) and the API on :8080
+
+DSN=postgresql://hardship_app:hardship_dev_only@db:5432/hardship_platform
+docker compose run --rm api python db/load_data.py --skip-schema --dsn $DSN   # synthetic data
+docker compose run --rm api python -m backend.ml --dsn $DSN score             # score with the placeholder
 ```
 
-(`--skip-schema` because docker-entrypoint-initdb.d already applied it on
-first boot. Dropping the `hardship_db_data` volume and re-running `up -d`
-gives you a truly clean slate.)
-
-If you're not using Docker, point `load_data.py` at any Postgres 14+
-database and drop `--skip-schema` — it will create everything itself.
-
-Then score the applications — with the rule-based placeholder straight
-away, or train, activate and score with the real model:
+The API is at http://localhost:8080/docs (log in with `admin` /
+`admin-dev-only`; see `docs/API.md`). A fresh database scores with the
+transparent rule-based placeholder (`rules-v0`). To train and switch to the
+real model:
 
 ```bash
-cd ..                                   # project root
-pip install -r requirements.txt
-python -m backend.ml score              # placeholder (rules-v0) is active on a fresh database
-python -m backend.ml train              # prints the evaluation and the new version's name
-python -m backend.ml activate <version>
-python -m backend.ml score
+docker compose run --rm api python -m backend.ml --dsn $DSN train        # prints the evaluation and the version name
+docker compose run --rm api python -m backend.ml --dsn $DSN activate <version>
+docker compose run --rm api python -m backend.ml --dsn $DSN score
 ```
+
+`docker compose down -v` gives you a clean slate. Passwords and the token
+secret in `docker-compose.yml` are development defaults — set
+`HARDSHIP_DB_PASSWORD`, `HARDSHIP_ADMIN_PASSWORD` and `HARDSHIP_SECRET` for
+anything beyond a laptop.
+
+### Local development
+
+```bash
+python -m venv .venv && .venv/Scripts/activate      # or source .venv/bin/activate
+pip install -r requirements-dev.txt
+docker compose up -d db
+python db/load_data.py --skip-schema --dsn postgresql://hardship_app:hardship_dev_only@localhost:5432/hardship_platform
+uvicorn backend.api.main:app --port 8080 --reload
+pytest                                               # API tests create and drop their own database
+```
+
+Without Docker, point `load_data.py` at any Postgres 14+ database and drop
+`--skip-schema` — it will create everything itself.
 
 ## What's already verified
 
