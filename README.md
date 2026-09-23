@@ -58,15 +58,22 @@ scores in [0,1], etc). See `docs/DATA_DICTIONARY.md` for the full rundown.
 
 Built directly from what was asked for in the kickoff call:
 
-- **`v_monthly_applications`** — applicant count per month x need category,
-  with the current decision-band mix (auto-approve / human review / defer /
-  audit-approve). This is the "20 applicants this month, broken down into
-  education / health / financial" chart. The band columns are all zero
-  until the ML pipeline has scored a cycle (see `backend/ml/`) — that's
-  expected on a fresh load.
-- **`v_repeat_support`** — per application: first-time vs. repeat-within-1-year
-  vs. repeat-over-1-year. Exactly the "how many will need help again, and how
-  soon" breakdown from the call.
+- **`v_monthly_support`** — the kickoff-call dashboard in one view: per month
+  and support group (education / health / financial / bereavement), how many
+  applied, how many had been helped before — within a year or over a year
+  ago — and how many were awarded. This is the "20 applicants this month,
+  broken down into education / health / financial" chart.
+- **`v_monthly_applications`** — applicant count per month x need category
+  (plus its `support_group`), with the current decision-band mix
+  (auto-approve / human review / defer / audit-approve). The band columns
+  are all zero until the ML pipeline has scored a cycle (see `backend/ml/`)
+  — that's expected on a fresh load.
+- **`v_repeat_support`** — per application: repeat *applicant* (first-time /
+  repeat within 1 year / over 1 year) and repeat *beneficiary* (never
+  helped / helped within 1 year / over 1 year, from prior awards).
+
+The grouping of the eight need categories into the four support groups
+lives in one SQL function, `support_group()`, at the top of `views.sql`.
 - **`v_cycle_summary`** — one row per funding cycle: applications, repeat
   applications, total awarded vs. budget.
 

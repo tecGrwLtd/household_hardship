@@ -56,9 +56,9 @@ def main():
     try:
         if not args.skip_schema:
             print("Applying schema.sql ...")
-            cur.execute((HERE / "schema.sql").read_text())
+            cur.execute((HERE / "schema.sql").read_text(encoding="utf-8"))
             print("Applying views.sql ...")
-            cur.execute((HERE / "views.sql").read_text())
+            cur.execute((HERE / "views.sql").read_text(encoding="utf-8"))
             conn.commit()
 
         for table in TABLE_ORDER:
@@ -66,7 +66,7 @@ def main():
             if not csv_path.exists():
                 print(f"  skip {table}: no CSV found at {csv_path}", file=sys.stderr)
                 continue
-            with open(csv_path, "r") as f:
+            with open(csv_path, "r", encoding="utf-8") as f:
                 header = f.readline().strip()
                 columns = header.split(",")
                 col_list = ", ".join(f'"{c}"' for c in columns)
