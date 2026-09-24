@@ -3,6 +3,8 @@
 dataset); the API lists versions and switches the active one."""
 from __future__ import annotations
 
+from typing import Literal
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
@@ -12,7 +14,7 @@ from ..schemas import ActivateRequest
 
 router = APIRouter(prefix="/models", tags=["models"])
 
-SUMMARY = """model_version, kind, status, artifact_path, trained_at, activated_at, training_rows, notes,
+SUMMARY = """model_version, purpose, kind, status, artifact_path, trained_at, activated_at, training_rows, notes,
              (metrics->'gates'->>'passed')::boolean AS gates_passed"""
 
 
@@ -22,10 +24,11 @@ def list_versions(conn: Connection = Depends(get_conn)):
 
 
 @router.get("/active")
-def active_version(conn: Connection = Depends(get_conn)):
-    row = conn.execute(text(f"SELECT {SUMMARY} FROM model_versions WHERE status = 'active'")).mappings().first()
+def active_version(purpose: Literal["need", "repeat"] = "need", conn: Connection = Depends(get_conn)):
+    row = conn.execute(text(f"SELECT {SUMMARY} FROM model_versions WHERE status = 'active' AND purpose = :p"),
+                       {"p": purpose}).mappings().first()
     if row is None:
-        raise HTTPException(404, "No active model version")
+        raise HTTPException(404, f"No active {purpose} model")
     return row
 
 
@@ -40,7 +43,8 @@ def get_version(version: str, conn: Connection = Depends(get_conn)):
 
 @router.post("/{version}/activate")
 def activate(version: str, body: ActivateRequest | None = None, conn: Connection = Depends(get_conn)):
-    """Make `version` the one live model; the previous one is retired.
+    """Make `version` the live model for its purpose (need or repeat); the
+    previous one for that purpose is retired.
     Refused if the version's evaluation gates failed, unless `force` is set
     with a `reason` — which is recorded on the version. Applications already
     allocated keep their scores; new ones use this version."""
@@ -58,8 +62,8 @@ def activate(version: str, body: ActivateRequest | None = None, conn: Connection
             raise HTTPException(422, "force=true needs a reason; it is recorded on the model version")
 
     prev = conn.execute(text("""UPDATE model_versions SET status = 'retired'
-                                WHERE status = 'active' AND model_version <> :v RETURNING model_version"""),
-                        {"v": version}).scalar()
+                                WHERE status = 'active' AND purpose = :p AND model_version <> :v
+                                RETURNING model_version"""), {"v": version, "p": row["purpose"]}).scalar()
     note = f"Activated despite failed gates: {body.reason}" if body.force and body.reason else None
     conn.execute(text("""UPDATE model_versions SET status = 'active', activated_at = now(),
                                 notes = CASE WHEN CAST(:note AS text) IS NULL THEN notes

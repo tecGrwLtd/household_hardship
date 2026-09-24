@@ -40,10 +40,13 @@ class ModelCache:
         self._models: dict[str, object] = {}
         self._lock = threading.Lock()
 
-    def active(self, conn: Connection) -> tuple[dict, object]:
-        row = conn.execute(text("SELECT * FROM model_versions WHERE status = 'active'")).mappings().first()
+    def active(self, conn: Connection, purpose: str = "need", required: bool = True) -> tuple[dict | None, object]:
+        row = conn.execute(text("SELECT * FROM model_versions WHERE status = 'active' AND purpose = :p"),
+                           {"p": purpose}).mappings().first()
         if row is None:
-            raise HTTPException(503, "No active model version. Activate one: POST /models/{version}/activate")
+            if not required:
+                return None, None
+            raise HTTPException(503, f"No active {purpose} model. Activate one: POST /models/{{version}}/activate")
         row = dict(row)
         with self._lock:
             if row["model_version"] not in self._models:
@@ -188,6 +191,20 @@ def commit_allocation(conn: Connection, cycle_id: int, plan: dict) -> None:
                      {"s": STATUS_FOR_BAND[r.band], "a": int(r.application_id)})
         if r.band in ("auto_approve", "audit_approve"):
             create_award(conn, int(r.application_id))
+    refresh_repeat_forecasts(conn, [int(a) for a in ranked["application_id"]])
+
+
+def refresh_repeat_forecasts(conn: Connection, application_ids: list[int]) -> None:
+    """Planning forecast of a return within a year, refreshed whenever an
+    application's outcome changes (it depends on whether it was funded).
+    Skipped quietly when no repeat model is active. Never read by allocation."""
+    row, model = models.active(conn, purpose="repeat", required=False)
+    if row is None or not application_ids:
+        return
+    feats = load_features(conn, application_ids=application_ids)
+    for app_id, p in zip(feats["application_id"], model.predict_proba(feats)):
+        conn.execute(text("""INSERT INTO repeat_forecasts (application_id, model_version, p_return_1y)
+                             VALUES (:a, :v, :p)"""), {"a": int(app_id), "v": row["model_version"], "p": round(float(p), 4)})
 
 
 def create_award(conn: Connection, application_id: int) -> None:

@@ -193,3 +193,39 @@ def test_allocation_with_a_trained_model(client, auth, sql):
         assert poorest["top_drivers"][0]["feature"] in (trained[-1] / "metadata.json").read_text()
     finally:
         client.post("/models/rules-v0/activate", headers=auth)
+
+
+def test_one_active_model_per_purpose_and_forecasts_follow_allocation(client, auth, sql, tmp_path):
+    """Activating a repeat forecaster leaves the need model alone, and
+    allocation / review refresh the planning forecasts."""
+    from backend.ml.registry import save
+    from backend.ml.repeat import HistoryRepeatModel
+    import pandas as pd
+    hist = pd.DataFrame({"prior_applications_count": [0, 1, 2, 3] * 25,
+                         "days_since_last_application": [None, 100, 200, 400] * 25,
+                         "status": ["awarded", "deferred"] * 50})
+    model = HistoryRepeatModel().fit(hist, [0, 1, 1, 1] * 25)
+    path = save(model, "repeat-apitest", {}, {"gates": {"passed": True}}, models_dir=tmp_path)
+    sql("""INSERT INTO model_versions (model_version, kind, purpose, status, artifact_path, metrics)
+           VALUES ('repeat-apitest', 'repeat_history', 'repeat', 'candidate', %s, '{"gates": {"passed": true}}')""",
+        (str(path),))
+    need_before = client.get("/models/active", headers=auth).json()["model_version"]
+    assert client.post("/models/repeat-apitest/activate", headers=auth).json()["retired"] is None
+    assert client.get("/models/active", headers=auth).json()["model_version"] == need_before
+    assert client.get("/models/active", headers=auth, params={"purpose": "repeat"}).json()["model_version"] == "repeat-apitest"
+    assert client.get("/health").json()["active_repeat_model"] == "repeat-apitest"
+
+    cycle_id, start = new_cycle(client, auth, budget=500_000)
+    app_id = submit(client, auth, new_household(client, auth, income=10_000), cycle_id, start)["application_id"]
+    client.post(f"/cycles/{cycle_id}/allocate", headers=auth)
+    assert sql("SELECT count(*) FROM repeat_forecasts WHERE application_id = %s", (app_id,))[0][0] == 1
+
+    rows = client.get("/dashboard/repeat-forecast", headers=auth, params={"start": start, "end": start}).json()
+    assert sum(r["forecast_count"] for r in rows) >= 1 and all(r["observable_count"] == 0 for r in rows)
+
+
+def test_monitoring_endpoints(client, auth):
+    drift = client.get("/dashboard/drift", headers=auth).json()
+    assert "latest" in drift and "history" in drift
+    trend = client.get("/dashboard/override-trend", headers=auth).json()
+    assert trend and {"month", "reviews", "override_rate", "override_rate_ok"} <= set(trend[0])

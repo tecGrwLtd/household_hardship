@@ -10,7 +10,7 @@ from sqlalchemy.engine import Connection
 
 from ..database import get_conn
 from ..schemas import ReviewCreate
-from ..scoring import create_award, cycle_budget, lock_cycle
+from ..scoring import create_award, cycle_budget, lock_cycle, refresh_repeat_forecasts
 
 router = APIRouter(prefix="/reviews", tags=["reviews"])
 QUEUE_STATUSES = ("in_review", "appealed")
@@ -78,4 +78,5 @@ def decide(application_id: int, body: ReviewCreate, conn: Connection = Depends(g
                  {"s": new_status, "a": application_id})
     if approve:
         create_award(conn, application_id)
+    refresh_repeat_forecasts(conn, [application_id])
     return {"review": review, "status": new_status}

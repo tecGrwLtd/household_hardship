@@ -13,7 +13,8 @@
 
 BEGIN;
 
-DROP VIEW IF EXISTS v_monthly_support, v_monthly_applications, v_repeat_support, v_cycle_summary;
+DROP VIEW IF EXISTS v_repeat_forecast, v_repeat_outcomes, v_monthly_support, v_monthly_applications,
+                     v_repeat_support, v_cycle_summary;
 
 -- The client talks about education / health / financial support; the schema
 -- records the finer need_category. One place defines the grouping so every
@@ -137,5 +138,46 @@ LEFT JOIN applications a ON a.cycle_id = fc.cycle_id
 LEFT JOIN awards aw ON aw.application_id = a.application_id
 GROUP BY fc.cycle_id, fc.period_start, fc.period_end, fc.budget_total, fc.budget_currency
 ORDER BY fc.period_start;
+
+-- Did the household apply again, and when? One row per application with the
+-- household's next submission (NULL if none yet).
+CREATE VIEW v_repeat_outcomes AS
+SELECT
+    a.application_id,
+    a.household_id,
+    a.submitted_at,
+    a.need_category,
+    support_group(a.need_category) AS support_group,
+    lead(a.submitted_at) OVER (PARTITION BY a.household_id ORDER BY a.submitted_at, a.application_id)
+        AS next_submitted_at
+FROM applications a;
+
+-- Forecast vs actual returns within a year, per month and support group.
+-- expected_return_1y sums the latest repeat forecast per application
+-- (backend/ml/repeat.py — planning only, never used for allocation).
+-- returned_1y_count counts actual returns, only for applications at least a
+-- year older than the latest one on record (younger ones cannot be judged yet).
+CREATE VIEW v_repeat_forecast AS
+SELECT
+    date_trunc('month', o.submitted_at)::date AS month,
+    o.support_group,
+    count(*) AS applicant_count,
+    count(f.p_return_1y) AS forecast_count,
+    round(coalesce(sum(f.p_return_1y), 0), 1) AS expected_return_1y,
+    count(*) FILTER (WHERE o.submitted_at <= latest.as_of - interval '365 days') AS observable_count,
+    count(*) FILTER (WHERE o.submitted_at <= latest.as_of - interval '365 days'
+                       AND o.next_submitted_at <= o.submitted_at + interval '365 days') AS returned_1y_count
+FROM v_repeat_outcomes o
+CROSS JOIN (SELECT max(submitted_at) AS as_of FROM applications) latest
+LEFT JOIN LATERAL (
+    SELECT rf.p_return_1y FROM repeat_forecasts rf
+    WHERE rf.application_id = o.application_id
+    ORDER BY rf.forecast_at DESC, rf.forecast_id DESC LIMIT 1
+) f ON true
+GROUP BY 1, 2
+ORDER BY 1, 2;
+
+COMMENT ON VIEW v_repeat_forecast IS
+    'Expected vs actual returns within a year, per month and support group (planning only).';
 
 COMMIT;

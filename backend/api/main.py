@@ -37,6 +37,7 @@ for r in (reference.router, households.router, applications.router, cycles.route
 def health():
     """Unauthenticated liveness + database check, for Docker and uptime probes."""
     with get_database().engine.connect() as conn:
-        active = conn.execute(text("SELECT model_version FROM model_versions WHERE status = 'active'")).scalar()
-    return {"status": "ok", "active_model": active,
+        active = dict(conn.execute(text("SELECT purpose, model_version FROM model_versions "
+                                        "WHERE status = 'active'")).all())
+    return {"status": "ok", "active_model": active.get("need"), "active_repeat_model": active.get("repeat"),
             "warning": "using the development secret; set HARDSHIP_SECRET" if settings.secret == DEV_SECRET else None}
