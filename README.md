@@ -1,9 +1,9 @@
 # Household Hardship Allocation Platform
 
-Backend for the household hardship allocation platform, built from the
-design spec (`Household hardship allocation model — design spec.docx`) and
-the kickoff call: database, need model, and the API the dashboard and
-data-entry screens sit on. There is no real applicant data yet, so this
+The household hardship allocation platform, built from the design spec
+(`Household hardship allocation model — design spec.docx`) and the kickoff
+call: database, need model, API, and the web app for programme managers and
+caseworkers (dashboard, data entry, review, cycles, model monitoring). There is no real applicant data yet, so this
 ships with a synthetic, internally-consistent dataset — 3,500 households,
 ~7,100 applications across 24 monthly funding cycles — sized to build and
 demo a real dashboard against.
@@ -11,8 +11,10 @@ demo a real dashboard against.
 ## What's here
 
 ```
-docker-compose.yml    Postgres + API, one command
+docker-compose.yml    Postgres + API + web app, one command
 Dockerfile            API image
+frontend/             React web app: dashboard, data entry, review queue, cycles,
+                      models; two roles, light and dark themes (frontend/README.md)
 backend/api/          FastAPI app: data entry, cycle allocation, human review,
                       dashboard, model management (docs/API.md)
 backend/ml/           The need model: evaluate / train / activate / score from the
@@ -40,15 +42,24 @@ docs/
 Everything in Docker — no local Python needed:
 
 ```bash
-docker compose up -d --build     # Postgres 16 (schema + views applied on first boot) and the API on :8080
+docker compose up -d --build     # Postgres 16 (schema + views on first boot), API on :8080, app on :3000
 
 DSN=postgresql://hardship_app:hardship_dev_only@db:5432/hardship_platform
 docker compose run --rm api python db/load_data.py --skip-schema --dsn $DSN   # synthetic data
 docker compose run --rm api python -m backend.ml --dsn $DSN score             # score with the placeholder
 ```
 
-The API is at http://localhost:8080/docs (log in with `admin` /
-`admin-dev-only`; see `docs/API.md`). A fresh database scores with the
+The app is at **http://localhost:3000**, the API reference at
+http://localhost:8080/docs. Demo accounts:
+
+| Username | Password | Role |
+|---|---|---|
+| `admin` | `admin-dev-only` | Programme manager: everything |
+| `uwase` | `caseworker-dev-only` | Caseworker (J. Uwase): data entry, own review queue |
+
+The admin account is created by the API on first start from
+`HARDSHIP_ADMIN_USER` / `HARDSHIP_ADMIN_PASSWORD`; the caseworker comes with
+the synthetic data. A fresh database scores with the
 transparent rule-based placeholder (`rules-v0`). To train and switch to the
 real model:
 
@@ -72,6 +83,7 @@ docker compose up -d db
 python db/load_data.py --skip-schema --dsn postgresql://hardship_app:hardship_dev_only@localhost:5432/hardship_platform
 uvicorn backend.api.main:app --port 8080 --reload
 pytest                                               # API tests create and drop their own database
+cd frontend && npm install && npm run dev           # app on :3000, proxying /api to :8080
 ```
 
 Without Docker, point `load_data.py` at any Postgres 14+ database and drop
@@ -85,6 +97,7 @@ then `views.sql` re-applied:
 
 ```bash
 docker compose exec -T db psql -U hardship_app -d hardship_platform < db/migrations/001_phase3_repeat_and_drift.sql
+docker compose exec -T db psql -U hardship_app -d hardship_platform < db/migrations/002_users_and_roles.sql
 docker compose exec -T db psql -U hardship_app -d hardship_platform < db/views.sql
 ```
 

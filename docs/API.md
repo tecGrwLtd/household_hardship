@@ -1,17 +1,26 @@
 # API guide
 
-For whoever builds the dashboard and the data-entry screens. The full,
+For anyone building on the API (the web app in `frontend/` uses exactly
+these endpoints). The full,
 always-current reference (every field, try-it-out buttons) is the
 generated OpenAPI page at **http://localhost:8080/docs** once the stack is
 running (`docker compose up -d --build`, see the README).
 
 ## Authentication
 
-One demo admin for now (real accounts come with the frontend).
+Accounts live in `app_users` (passwords are bcrypt hashes checked inside
+Postgres). Two roles:
+
+- **admin** — the programme manager: everything below.
+- **caseworker** — data entry and review. Their applications and review
+  decisions are always attributed to them, whatever the request says. Admin
+  only: creating cycles, preview / allocate, `/models/*`, and
+  `/dashboard/fairness | model-health | drift | override-trend` (403 otherwise).
 
 ```bash
 curl -X POST localhost:8080/auth/login -d "username=admin&password=admin-dev-only"
-# {"access_token": "...", "token_type": "bearer", "expires_at": "..."}
+# {"access_token": "...", "token_type": "bearer", "expires_at": "...", "user": {"role": "admin", ...}}
+curl localhost:8080/auth/me -H "Authorization: Bearer <token>"
 ```
 
 Send `Authorization: Bearer <access_token>` on every request. Only
@@ -44,6 +53,23 @@ POST /applications ──► submitted ──(POST /cycles/{id}/allocate)──�
   does not size awards (out of scope in the design spec). Approvals are
   refused (409) if they would overspend the cycle.
 
+## Global filters
+
+The web app's sidebar filters apply to every page. Endpoints that honour
+them take the same query parameters, all optional:
+
+| Parameter | Example | Meaning |
+|---|---|---|
+| `month` | `2026-08-01` | Any day in the month |
+| `support_group` | `health` | financial / health / education / bereavement |
+| `region` | `Kigali` | Province |
+| `area_code` | `AR007` | District |
+| `urban_rural` | `rural` | urban / rural |
+| `mine` | `true` | Only the signed-in caseworker's applications |
+
+`GET /dashboard/filters` lists the values available. The review queue uses
+every filter except `month` (a worklist must not hide an older appeal).
+
 ## Endpoints
 
 ### Reference data (for form dropdowns)
@@ -62,13 +88,13 @@ POST /applications ──► submitted ──(POST /cycles/{id}/allocate)──�
 | Method | Path | Notes |
 |---|---|---|
 | POST | `/households` | `{area_code}` → `household_id` |
-| GET | `/households` | `?area_code=&limit=&offset=` |
+| GET | `/households` | `?area_code=&region=&q=&limit=&offset=` → `{total, items}` with latest survey, size, applications, awards |
 | GET | `/households/{id}` | Household, its survey waves, its applications |
 | POST | `/households/{id}/surveys` | One survey wave — record a new wave when circumstances change; applications are scored on the latest wave on or before their submission date |
 | PUT | `/households/{id}/protected-attributes` | Ethnicity, gender of head, disability, age band, … **Write-only**: never returned per household, only as aggregate fairness figures |
 | POST | `/applications` | Returns the application plus `provisional_score` (need estimate, interval, top drivers). `prior_applications_count` and `days_since_last_application` are computed by the server and rejected if sent |
-| GET | `/applications` | `?cycle_id=&status=&household_id=&limit=&offset=` |
-| GET | `/applications/{id}` | Application, latest score + explanation (or provisional estimate), reviews, award |
+| GET | `/applications` | Global filters + `status`, `q` (id, household or district), `cycle_id`, `limit`, `offset`. Returns `{total, status_counts, items}` |
+| GET | `/applications/{id}` | Application with district, the survey it was scored on, latest score + explanation (or provisional estimate), reviews, award, the household's other applications, repeat forecast |
 | POST | `/applications/{id}/appeal` | Deferred → appealed (back into the review queue) |
 
 ### Allocation and review
@@ -77,13 +103,20 @@ POST /applications ──► submitted ──(POST /cycles/{id}/allocate)──�
 |---|---|---|
 | GET | `/cycles/{id}/preview` | Dry run: bands, cutoff, budget split. Writes nothing |
 | POST | `/cycles/{id}/allocate` | Commits the bands for all `submitted` applications in the cycle |
-| GET | `/reviews/queue` | `?cycle_id=` — cases waiting for a person, neediest first, with `model_lean` and `top_shap_features` |
-| POST | `/reviews/{application_id}` | `{decision: "approve" \| "deny", caseworker_id?, notes?}`. Records whether the reviewer overrode the model's lean |
+| GET | `/reviews/queue` | Global filters (not month) + `mine` (default: yes for caseworkers), `kind` (`review` / `appeal`), `cycle_id`. Returns `{counts, mine, items}`; items carry `model_lean`, `top_shap_features` and `deferred_last_year` |
+| POST | `/reviews/{application_id}` | `{decision: "approve" \| "deny", notes}` — a reason is required. Records whether the reviewer overrode the model's lean |
+| GET | `/me/summary` | The signed-in caseworker's open cases, applications and awards this cycle, and review record |
 
 ### Dashboard (read-only)
 
 | Method | Path | What it answers (kickoff call) |
 |---|---|---|
+| GET | `/dashboard/filters` | Values for the sidebar selectors |
+| GET | `/dashboard/summary` | Headline figures for the filters: applicants (and last month's), requested, awarded, helped before, expected back within a year, the month's budget (`budget_applies` false when the filters show only part of the programme) |
+| GET | `/dashboard/support-types` | Per support group: applicants, helped before within / over a year, awards, expected returns |
+| GET | `/dashboard/outcomes` | What happened: applications by status |
+| GET | `/dashboard/monthly` | Applicants per month and support group, `months` back from the selected month |
+| GET | `/dashboard/districts` | Applicants and amounts per district |
 | GET | `/dashboard/monthly-support` | "20 applicants this month → education / health / financial"; of those, how many were helped before, within a year or more than a year ago; how many were awarded. `?start=&end=` (month dates) |
 | GET | `/dashboard/monthly-applications` | Per month × need category, with the decision-band mix |
 | GET | `/dashboard/repeat-support` | Totals for first-time vs repeat applicants and never / within 1 year / over 1 year helped |

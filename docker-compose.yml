@@ -1,6 +1,6 @@
-# Postgres + the API.
+# Postgres, the API and the web app.
 #
-#   docker compose up -d --build
+#   docker compose up -d --build            # app on http://localhost:3000, API docs on :8080/docs
 #   docker compose run --rm api python db/load_data.py --skip-schema \
 #       --dsn postgresql://hardship_app:hardship_dev_only@db:5432/hardship_platform
 #   docker compose run --rm api python -m backend.ml train      # optional: the placeholder works without it
@@ -47,6 +47,15 @@ services:
       - "8080:8080"   # 8000 is taken on the dev machine
     volumes:
       - ./models:/app/models   # trained model artifacts (python -m backend.ml train writes here)
+
+  web:
+    build: ./frontend
+    container_name: hardship_platform_web
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "3000:80"     # the app: http://localhost:3000
 
 volumes:
   hardship_db_data:

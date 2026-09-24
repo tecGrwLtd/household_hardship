@@ -18,7 +18,8 @@ complicated, all I want to show is that it works".
 | Backend stack | FastAPI + SQLAlchemy + PostgreSQL (Python, same as the ML code) |
 | Dashboard grouping | education → **Education**; medical → **Health**; rent_arrears, utilities, food, childcare, other → **Financial**; funeral → **Bereavement** |
 | Repeat-support prediction model | Phase 3. v1 dashboard uses the historical repeat breakdown (`v_repeat_support`) |
-| Auth | Single demo admin until the frontend exists |
+| Auth | Single demo admin until the frontend exists; then two roles, admin and caseworker, with different menus and views (24 Sep) |
+| Frontend | React + TypeScript (Vite); English only; desktop; light and dark themes; global filters in the sidebar (24 Sep) |
 | `female_headed`, `disability_in_household` | Model inputs **and** audit dimensions, as the spec states |
 
 ## Model choice
@@ -74,6 +75,6 @@ penalise people for having needed help before.
 - [x] **Phase 1 — ML pipeline v1.** (done 23 Sep 2026) `train` / `evaluate` / `activate` / `score` CLI; ridge-PMT and deficit baselines; rule-based placeholder live from day one; model artifact + metadata; `model_versions` registry with activation gates; metrics report. Changes from the plan: monotone constraints sit on a Huber central estimate (LightGBM refuses them on quantile objectives); calibration is cross-conformal; ranking is judged among the poor; `asset_index` is now fitted once and stored with the model (it used to be recomputed per batch).
 - [x] **Phase 2 — Backend API.** (done 23 Sep 2026) FastAPI: data entry (households, surveys, applications, write-only protected attributes), cycles + preview + allocation against remaining budget, review queue with override tracking and appeals, dashboard endpoints, model management with gated activation; active-model loader (placeholder until a trained version is activated); demo admin auth; Docker Compose for API + DB; API integration tests. Guide: `docs/API.md`.
 - [x] **Phase 3 — Monitoring + repeat model.** (done 24 Sep 2026) Repeat-support forecaster, chosen by evaluation between a regularised LightGBM and a history-only logistic regression (the latter wins on the synthetic data), calibration only where it helps, planning-only with its own registry purpose; `v_repeat_forecast` (expected vs actual returns); monthly drift report (PSI per input and score, SHAP stability, subgroup means, coverage on post-training outcomes) with a reference profile stored at training; override-rate trend; migration file for existing databases.
-- [ ] **Phase 4 — Frontend.** Dashboard, data-entry forms, platform management, on top of the Phase 2 API.
+- [x] **Phase 4 — Frontend.** (done 24 Sep 2026) Web app on :3000 with two roles (admin: dashboard, applications, review, households, cycles, models; caseworker: my work, applications, review, households), new-application wizard, survey-wave entry, audit-only questions, allocation with preview and confirmation, gated model activation, global sidebar filters, light and dark themes. Backend additions: accounts and roles, application-level facts view behind every filtered figure, paging and search. Design: the "Hardship Platform UI" canvas.
 
 Demo target: Phases 0–1 plus the dashboard endpoints of Phase 2.
