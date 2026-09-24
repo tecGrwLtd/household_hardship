@@ -16,7 +16,8 @@ from .model import RANDOM_AUDIT_RATE
 COMMITTED_BANDS = ("auto_approve", "audit_approve")
 
 
-def allocate(scores: pd.DataFrame, budget: float, rng: np.random.Generator) -> tuple[pd.DataFrame, float]:
+def allocate(scores: pd.DataFrame, budget: float, rng: np.random.Generator,
+             audit_rate: float = RANDOM_AUDIT_RATE) -> tuple[pd.DataFrame, float]:
     """scores: application_id, household_id, need_lo, need_mid, need_hi, amount_requested.
     Returns (ranked_with_band, cutoff).
 
@@ -37,7 +38,8 @@ def allocate(scores: pd.DataFrame, budget: float, rng: np.random.Generator) -> t
     budget: if quantile crossing (lo above another applicant's mid) would
     push it over, the lowest-ranked auto-approvals drop to human_review.
 
-    A random RANDOM_AUDIT_RATE share of the deferred group is flipped to
+    A random `audit_rate` share (default RANDOM_AUDIT_RATE; the platform
+    setting, kept within the spec's 3-5%) of the deferred group is flipped to
     audit_approve — the only source of unbiased future labels for retraining.
     This line is not optional and must not be turned off as a cost-saving
     measure; see the design spec's selective-labels section. Its cost comes
@@ -63,7 +65,7 @@ def allocate(scores: pd.DataFrame, budget: float, rng: np.random.Generator) -> t
     ranked.loc[over_budget[over_budget].index, "band"] = "human_review"
 
     deferred_idx = ranked.index[ranked["band"] == "defer"]
-    n_audit = int(round(len(deferred_idx) * RANDOM_AUDIT_RATE))
+    n_audit = int(round(len(deferred_idx) * audit_rate))
     if n_audit:
         picked = rng.choice(deferred_idx, size=n_audit, replace=False)
         ranked.loc[picked, "band"] = "audit_approve"

@@ -170,3 +170,15 @@ def write_drift_report(dsn: str, model_version: str, window_start, window_end, r
         report_id = cur.fetchone()[0]
     conn.close()
     return report_id
+
+
+def get_platform_setting(dsn: str, key: str):
+    """A value set in the admin console (platform_settings), or None."""
+    try:
+        with get_conn(dsn) as conn, conn.cursor() as cur:
+            cur.execute("SELECT value FROM platform_settings WHERE key = %s", (key,))
+            row = cur.fetchone()
+        conn.close()
+    except psycopg2.errors.UndefinedTable:
+        return None
+    return row[0] if row else None

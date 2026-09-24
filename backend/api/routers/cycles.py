@@ -4,7 +4,8 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 from sqlalchemy.engine import Connection
 
-from ..auth import require_admin
+from ..auth import User, require_admin
+from ..platform import log
 from ..database import get_conn
 from ..scoring import commit_allocation, lock_cycle, plan_allocation, plan_to_json
 
@@ -21,7 +22,7 @@ def preview(cycle_id: int, conn: Connection = Depends(get_conn)):
 
 
 @router.post("/{cycle_id}/allocate")
-def allocate_cycle(cycle_id: int, conn: Connection = Depends(get_conn)):
+def allocate_cycle(cycle_id: int, admin: User = Depends(require_admin), conn: Connection = Depends(get_conn)):
     """Score and band every SUBMITTED application in the cycle against the
     budget still unspent, then: auto- and audit-approved get an award now;
     human_review go to the review queue (GET /reviews/queue); defer are
@@ -31,4 +32,7 @@ def allocate_cycle(cycle_id: int, conn: Connection = Depends(get_conn)):
     plan = plan_allocation(conn, cycle_id)
     if plan["model_version"] is not None:
         commit_allocation(conn, cycle_id, plan)
+        bands = plan["applications"]["band"].value_counts().to_dict()
+        log(conn, admin.username, "cycle.allocate", str(cycle_id),
+            {"model_version": plan["model_version"], "applications": int(sum(bands.values())), "bands": bands})
     return plan_to_json(plan)

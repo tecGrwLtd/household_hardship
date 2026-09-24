@@ -12,6 +12,7 @@ from ..auth import User, current_user
 from ..database import get_conn, get_database
 from ..filters import Filters, filters
 from ..schemas import ApplicationCreate
+from ..platform import log
 from ..scoring import provisional
 
 router = APIRouter(prefix="/applications", tags=["applications"])
@@ -62,6 +63,8 @@ def submit_application(body: ApplicationCreate, user: User = Depends(current_use
     )
     t = get_database().table("applications")
     app = dict(conn.execute(insert(t).values(**values).returning(t)).mappings().one())
+    log(conn, user.username, "application.submit", str(app["application_id"]),
+        {"cycle_id": body.cycle_id, "need_category": body.need_category, "amount_requested": body.amount_requested})
     return {**app, "provisional_score": provisional(conn, app["application_id"])}
 
 
@@ -140,7 +143,7 @@ def get_application(application_id: int, conn: Connection = Depends(get_conn)):
 
 
 @router.post("/{application_id}/appeal")
-def appeal(application_id: int, conn: Connection = Depends(get_conn)):
+def appeal(application_id: int, user: User = Depends(current_user), conn: Connection = Depends(get_conn)):
     """The appeal route every deferral must have (design spec): puts the
     application back in front of a human in the review queue."""
     row = conn.execute(text("""UPDATE applications SET status = 'appealed'
@@ -152,4 +155,5 @@ def appeal(application_id: int, conn: Connection = Depends(get_conn)):
         if exists is None:
             raise HTTPException(404, f"No application {application_id}")
         raise HTTPException(409, f"Only a deferred application can be appealed (this one is {exists[0]!r})")
+    log(conn, user.username, "application.appeal", str(application_id))
     return row

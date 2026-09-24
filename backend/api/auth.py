@@ -15,7 +15,7 @@ from datetime import datetime, timedelta, timezone
 import jwt
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.engine import Connection, Engine
 
@@ -76,6 +76,21 @@ def require_admin(user: User = Depends(current_user)) -> User:
     if not user.is_admin:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Programme manager (admin) only")
     return user
+
+
+class PasswordChange(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=10)
+
+
+@router.post("/password", status_code=204)
+def change_password(body: PasswordChange, user: User = Depends(current_user), conn: Connection = Depends(get_conn)):
+    ok = conn.execute(text("""UPDATE app_users SET password_hash = crypt(:new, gen_salt('bf', 10))
+                              WHERE user_id = :i AND password_hash = crypt(:old, password_hash) RETURNING 1"""),
+                      {"i": user.user_id, "old": body.current_password, "new": body.new_password}).first()
+    if ok is None:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Current password is wrong")
+    conn.execute(text("INSERT INTO audit_log (username, action, target) VALUES (:u, 'user.password', :u)"), {"u": user.username})
 
 
 @router.get("/me")

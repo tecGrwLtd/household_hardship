@@ -14,6 +14,7 @@ from ..auth import User, current_user
 from ..database import get_conn
 from ..filters import Filters, filters
 from ..schemas import ReviewCreate
+from ..platform import log
 from ..scoring import create_award, cycle_budget, lock_cycle, refresh_repeat_forecasts
 
 router = APIRouter(prefix="/reviews", tags=["reviews"])
@@ -116,4 +117,6 @@ def decide(application_id: int, body: ReviewCreate, user: User = Depends(current
     if approve:
         create_award(conn, application_id)
     refresh_repeat_forecasts(conn, [application_id])
+    log(conn, user.username, "review.decide", str(application_id),
+        {"decision": body.decision, "overridden": review["overridden"], "status": new_status})
     return {"review": review, "status": new_status}

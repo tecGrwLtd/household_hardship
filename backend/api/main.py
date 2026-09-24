@@ -14,7 +14,7 @@ from sqlalchemy import text
 from . import auth
 from .config import DEV_SECRET, settings
 from .database import get_database
-from .routers import applications, cycles, dashboard, households, me, models, reference, reviews
+from .routers import admin, applications, cycles, dashboard, households, me, models, reference, reviews
 
 
 @asynccontextmanager
@@ -26,7 +26,7 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(
     lifespan=lifespan,
     title="Household Hardship Platform API",
-    version="0.2.0",
+    version="0.3.0",
     description=(
         "Data entry, cycle allocation, human review and dashboard data for the household hardship "
         "allocation model. Log in at POST /auth/login (roles: admin, caseworker) and send the token "
@@ -39,7 +39,7 @@ app.add_middleware(CORSMiddleware, allow_origins=list(settings.cors_origins), al
 app.include_router(auth.router)
 protected = [Depends(auth.current_user)]
 for r in (reference.router, households.router, applications.router, cycles.router,
-          reviews.router, dashboard.router, models.router, me.router):
+          reviews.router, dashboard.router, models.router, me.router, admin.router):
     app.include_router(r, dependencies=protected)
 
 

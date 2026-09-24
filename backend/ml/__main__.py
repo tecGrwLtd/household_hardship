@@ -41,7 +41,8 @@ POVERTY_LINE_PERCENTILE = 0.5  # placeholder: a real deployment uses a published
 def load_dataset(dsn: str) -> dict:
     raw = db.load_raw_tables(dsn)
     full = build_features(raw["households"], raw["surveys"], raw["applications"], raw["area"])
-    poverty_line = float(full["consumption_pc"].quantile(POVERTY_LINE_PERCENTILE))
+    configured = db.get_platform_setting(dsn, "poverty_line")   # admin console; None = placeholder
+    poverty_line = float(configured) if configured else float(full["consumption_pc"].quantile(POVERTY_LINE_PERCENTILE))
     full = add_poverty_gap(full, poverty_line)
     # Selective labels: outcomes exist only for approved/audited applicants in
     # a real deployment, so only those rows are trained on — even though this
@@ -53,8 +54,8 @@ def load_dataset(dsn: str) -> dict:
     n_no_survey = int(full["survey_date"].isna().sum())
     print(f"{len(full)} applications, {int(labelled.sum())} labelled for training "
           f"(status in {list(ELIGIBLE_STATUSES)}); {n_no_survey} without a survey on or before submission")
-    print(f"Poverty line: {poverty_line:,.0f} RWF/person/month ({POVERTY_LINE_PERCENTILE:.0%} percentile "
-          f"of consumption_pc — placeholder until a published line is agreed)")
+    print(f"Poverty line: {poverty_line:,.0f} RWF/person/month" + (" (set in the admin console)" if configured else
+          f" ({POVERTY_LINE_PERCENTILE:.0%} percentile of consumption_pc — placeholder until a published line is agreed)"))
     return {"raw": raw, "full": full, "labelled": labelled, "protected": protected, "poverty_line": poverty_line}
 
 

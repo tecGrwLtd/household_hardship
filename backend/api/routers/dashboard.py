@@ -14,6 +14,7 @@ from sqlalchemy.engine import Connection
 from ..auth import require_admin
 from ..database import get_conn
 from ..filters import Filters, filters
+from ..platform import get_setting
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 admin_only = [Depends(require_admin)]
@@ -58,7 +59,11 @@ def _summary(conn: Connection, f: Filters) -> dict:
                count(*) FILTER (WHERE helped_bucket = 'helped_over_1y') AS helped_over_1y,
                count(*) FILTER (WHERE is_repeat_applicant) AS repeat_applicants,
                coalesce(sum(p_return_1y), 0) AS expected_back_1y,
-               count(p_return_1y) AS forecast_count
+               count(p_return_1y) AS forecast_count,
+               -- decided = funded, deferred or closed (not waiting, not withdrawn)
+               count(*) FILTER (WHERE awarded OR status IN ('deferred', 'closed')) AS decided,
+               avg(award_amount) AS average_award,
+               percentile_cont(0.5) WITHIN GROUP (ORDER BY amount_requested) AS median_requested
         FROM v_application_facts f WHERE {where}"""), params).mappings().one())
 
 
@@ -128,6 +133,74 @@ def districts(f: Filters = Depends(filters), conn: Connection = Depends(get_conn
                coalesce(sum(amount_requested), 0) AS requested, count(*) FILTER (WHERE awarded) AS awarded
         FROM v_application_facts f WHERE {where}
         GROUP BY area_code, area_name, region, urban_rural ORDER BY count(*) DESC, area_name"""), params).mappings().all()
+
+
+@router.get("/trend")
+def trend(f: Filters = Depends(filters), months: int = Query(12, ge=2, le=36), conn: Connection = Depends(get_conn)):
+    """Per month, for the `months` months ending at the selected month (or the
+    latest): applicants, awards, amounts requested and awarded (all filtered),
+    and the programme's budget for that month (never filtered — it is one
+    budget for everyone)."""
+    where, params = f.where(month=False)
+    end = f.month or conn.execute(text("SELECT max(date_trunc('month', submitted_at))::date FROM applications")).scalar()
+    return conn.execute(text(f"""
+        WITH m AS (
+            SELECT month, count(*) AS applicants, count(*) FILTER (WHERE awarded) AS awarded,
+                   coalesce(sum(amount_requested), 0) AS requested, coalesce(sum(award_amount), 0) AS awarded_amount,
+                   count(*) FILTER (WHERE awarded OR status IN ('deferred', 'closed')) AS decided,
+                   count(*) FILTER (WHERE helped_bucket <> 'never_helped') AS helped_before
+            FROM v_application_facts f
+            WHERE {where} AND month <= :end AND month > (CAST(:end AS date) - make_interval(months => :n))
+            GROUP BY month)
+        SELECT m.*, b.budget
+        FROM m LEFT JOIN (SELECT date_trunc('month', period_start)::date AS month, sum(budget_total) AS budget
+                          FROM funding_cycles GROUP BY 1) b USING (month)
+        ORDER BY month"""), {**params, "end": end, "n": months}).mappings().all()
+
+
+@router.get("/heatmap")
+def heatmap(f: Filters = Depends(filters), conn: Connection = Depends(get_conn)):
+    """Applicants by region and support group — where each kind of need is."""
+    where, params = f.where()
+    return conn.execute(text(f"""
+        SELECT region, support_group, count(*) AS applicants, count(*) FILTER (WHERE awarded) AS awarded
+        FROM v_application_facts f WHERE {where}
+        GROUP BY region, support_group ORDER BY region, support_group"""), params).mappings().all()
+
+
+@router.get("/channels")
+def channels(f: Filters = Depends(filters), conn: Connection = Depends(get_conn)):
+    """How people reach the programme — application channel and who referred
+    them — and how often each route ends in help. The spec: referral "encodes
+    access to advocacy", so it is worth watching."""
+    where, params = f.where()
+    rows = {}
+    for dim in ("application_channel", "referral_source"):
+        rows[dim] = conn.execute(text(f"""
+            SELECT coalesce({dim}, 'not recorded') AS value, count(*) AS applicants,
+                   count(*) FILTER (WHERE awarded) AS awarded,
+                   count(*) FILTER (WHERE awarded OR status IN ('deferred', 'closed')) AS decided
+            FROM v_application_facts f WHERE {where} GROUP BY 1 ORDER BY 2 DESC"""), params).mappings().all()
+    return rows
+
+
+AMOUNT_BUCKETS = [(0, 10_000, "Under 10k"), (10_000, 25_000, "10–25k"), (25_000, 50_000, "25–50k"),
+                  (50_000, 100_000, "50–100k"), (100_000, None, "100k and over")]
+
+
+@router.get("/amounts")
+def amounts(f: Filters = Depends(filters), conn: Connection = Depends(get_conn)):
+    """How much people ask for: applications per amount band (RWF), and how
+    many in each band were funded."""
+    where, params = f.where()
+    out = []
+    for lo, hi, label in AMOUNT_BUCKETS:
+        cond = "amount_requested >= :lo" + (" AND amount_requested < :hi" if hi else "")
+        r = conn.execute(text(f"""SELECT count(*) AS applicants, count(*) FILTER (WHERE awarded) AS awarded
+                                  FROM v_application_facts f WHERE {where} AND {cond}"""),
+                         {**params, "lo": lo, "hi": hi}).mappings().one()
+        out.append({"band": label, "from": lo, "to": hi, **r})
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -208,10 +281,12 @@ def model_health(conn: Connection = Depends(get_conn)):
                count(*) FILTER (WHERE final_decision = 'approved') AS approved
         FROM application_reviews""")).mappings().one()
     rate = reviews["override_rate"]
+    floor = float(get_setting(conn, "override_rate_floor"))
     return {
         "active_model": active,
         "bands": {b["band"]: b["n"] for b in bands},
-        "reviews": {**reviews, "override_rate_ok": None if rate is None else float(rate) >= 0.05},
+        "reviews": {**reviews, "override_rate_floor": floor,
+                    "override_rate_ok": None if rate is None else float(rate) >= floor},
     }
 
 
@@ -239,4 +314,5 @@ def override_trend(conn: Connection = Depends(get_conn)):
                avg(overridden::int) AS override_rate,
                avg((final_decision = 'approved')::int) AS approval_rate
         FROM application_reviews GROUP BY 1 ORDER BY 1""")).mappings().all()
-    return [{**r, "override_rate_ok": float(r["override_rate"]) >= 0.05} for r in rows]
+    floor = float(get_setting(conn, "override_rate_floor"))
+    return [{**r, "override_rate_ok": float(r["override_rate"]) >= floor} for r in rows]

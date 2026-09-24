@@ -17,6 +17,7 @@ from sqlalchemy.engine import Connection
 from ..ml import registry
 from ..ml.allocate import allocate, budget_summary
 from ..ml.features import build_features
+from .platform import get_setting
 
 AWARDED_STATUSES = ("auto_approved", "audit_approved", "awarded")
 STATUS_FOR_BAND = {
@@ -163,7 +164,8 @@ def plan_allocation(conn: Connection, cycle_id: int, rng: np.random.Generator | 
         return {"budget": budget, "model_version": None, "cutoff": None, "summary": None, "applications": []}
     s = score(conn, feats)
     ranked, cutoff = allocate(s.frame.drop(columns=["top_drivers", "has_survey", "cycle_id"]),
-                              max(budget["remaining"], 0.0), rng or np.random.default_rng())
+                              max(budget["remaining"], 0.0), rng or np.random.default_rng(),
+                              audit_rate=float(get_setting(conn, "random_audit_rate")))
     ranked = ranked.merge(s.frame[["application_id", "top_drivers", "has_survey"]], on="application_id")
     return {
         "budget": budget,

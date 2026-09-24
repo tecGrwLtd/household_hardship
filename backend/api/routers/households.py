@@ -10,7 +10,9 @@ from sqlalchemy import insert, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.engine import Connection
 
+from ..auth import User, current_user
 from ..database import get_conn, get_database
+from ..platform import log
 from ..schemas import HouseholdCreate, ProtectedAttributes, SurveyCreate
 
 router = APIRouter(prefix="/households", tags=["households"])
@@ -22,11 +24,13 @@ def _require_household(conn: Connection, household_id: UUID) -> None:
 
 
 @router.post("", status_code=201)
-def create_household(body: HouseholdCreate, conn: Connection = Depends(get_conn)):
+def create_household(body: HouseholdCreate, user: User = Depends(current_user), conn: Connection = Depends(get_conn)):
     if conn.execute(text("SELECT 1 FROM area_reference WHERE area_code = :a"), {"a": body.area_code}).first() is None:
         raise HTTPException(422, f"Unknown area_code {body.area_code!r} (see GET /areas)")
     t = get_database().table("households")
-    return conn.execute(insert(t).values(**body.model_dump()).returning(t)).mappings().one()
+    row = conn.execute(insert(t).values(**body.model_dump()).returning(t)).mappings().one()
+    log(conn, user.username, "household.create", str(row["household_id"]), {"area_code": body.area_code})
+    return row
 
 
 @router.get("")
@@ -79,14 +83,17 @@ def get_household(household_id: UUID, conn: Connection = Depends(get_conn)):
 
 
 @router.post("/{household_id}/surveys", status_code=201)
-def add_survey(household_id: UUID, body: SurveyCreate, conn: Connection = Depends(get_conn)):
+def add_survey(household_id: UUID, body: SurveyCreate, user: User = Depends(current_user), conn: Connection = Depends(get_conn)):
     _require_household(conn, household_id)
     t = get_database().table("household_surveys")
-    return conn.execute(insert(t).values(household_id=household_id, **body.model_dump()).returning(t)).mappings().one()
+    row = conn.execute(insert(t).values(household_id=household_id, **body.model_dump()).returning(t)).mappings().one()
+    log(conn, user.username, "survey.create", str(household_id), {"survey_date": body.survey_date})
+    return row
 
 
 @router.put("/{household_id}/protected-attributes", status_code=204)
-def set_protected_attributes(household_id: UUID, body: ProtectedAttributes, conn: Connection = Depends(get_conn)):
+def set_protected_attributes(household_id: UUID, body: ProtectedAttributes, user: User = Depends(current_user),
+                             conn: Connection = Depends(get_conn)):
     """AUDIT ONLY: used to measure disparate impact, never read by the model,
     and only ever reported in aggregate (GET /dashboard/fairness)."""
     _require_household(conn, household_id)
@@ -94,3 +101,4 @@ def set_protected_attributes(household_id: UUID, body: ProtectedAttributes, conn
     values = {"household_id": household_id, **body.model_dump()}
     conn.execute(pg_insert(t).values(**values).on_conflict_do_update(
         index_elements=["household_id"], set_=body.model_dump()))
+    log(conn, user.username, "audit_questions.save", str(household_id))   # never the answers

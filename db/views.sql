@@ -209,7 +209,9 @@ SELECT
     r.is_repeat_applicant,
     r.repeat_bucket,
     r.helped_bucket,
-    f.p_return_1y
+    f.p_return_1y,
+    a.application_channel::text AS application_channel,
+    a.referral_source
 FROM applications a
 JOIN households h ON h.household_id = a.household_id
 JOIN area_reference ar ON ar.area_code = h.area_code
