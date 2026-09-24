@@ -12,7 +12,8 @@ export type FilterKey = "month" | "support_group" | "region" | "area_code" | "ur
 export type FilterValues = Record<FilterKey, string>;
 
 export const EMPTY: FilterValues = { month: "", support_group: "", region: "", area_code: "", urban_rural: "" };
-const KEY = "hf.filters";
+// v2: the default became "everything" — older saved selections are left behind.
+const KEY = "hf.filters.v2";
 
 interface FiltersState {
   values: FilterValues;
@@ -36,31 +37,20 @@ function load(): FilterValues | null {
 
 export function FiltersProvider({ children }: { children: ReactNode }) {
   const options = useApi<FilterOptions>("/dashboard/filters").data;
-  const [hadSaved] = useState(() => load() !== null);
   const [values, setValues] = useState<FilterValues>(() => load() ?? EMPTY);
   const [active, setActive] = useState<FilterKey[]>([]);
 
-  // First visit: start on the most recent complete month (the latest may be
-  // still open), so the dashboard opens on a month with its full story.
+  // Everything is shown until someone narrows it; the choice is remembered.
   useEffect(() => {
-    if (options && !values.month && !hadSaved) {
-      setValues((v) => ({ ...v, month: options.months[1] ?? options.months[0] ?? "" }));
-    }
-  }, [options]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Save only once the defaults are in, so an early reload cannot freeze an
-  // empty selection as if someone had chosen "All months".
-  useEffect(() => {
-    if (!hadSaved && !values.month) return;
     try { localStorage.setItem(KEY, JSON.stringify(values)); } catch { /* storage blocked */ }
-  }, [values, hadSaved]);
+  }, [values]);
 
   const value = useMemo<FiltersState>(() => ({
     values,
     options,
     active,
     setActive,
-    reset: () => setValues({ ...EMPTY, month: options?.months[1] ?? "" }),
+    reset: () => setValues(EMPTY),
     set: (key, v) => setValues((prev) => {
       const next = { ...prev, [key]: v };
       // A district belongs to one region; changing region clears a district outside it.

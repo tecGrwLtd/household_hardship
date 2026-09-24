@@ -289,3 +289,42 @@ export interface DriftReport {
 export interface Drift { model_version: string; latest: DriftReport | null; history: Omit<DriftReport, "report">[]; note: string | null }
 export interface FairnessRow { attribute: string; group_value: string; n: number; exclusion_error: number; gap_vs_best: number }
 export interface OverrideTrendRow { month: string; reviews: number; override_rate: number; approval_rate: number; override_rate_ok: boolean }
+
+export interface SummaryExtra extends Summary { decided: number; average_award: number | null; median_requested: number | null }
+export interface TrendRow { month: string; applicants: number; awarded: number; requested: number; awarded_amount: number; decided: number; helped_before: number; budget: number | null }
+export interface HeatRow { region: string; support_group: string; applicants: number; awarded: number }
+export interface ChannelRow { value: string; applicants: number; awarded: number; decided: number }
+export interface AmountRow { band: string; from: number; to: number | null; applicants: number; awarded: number }
+
+export interface ModelCard {
+  version: ModelVersionDetail & { artifact_path: string | null; data_hash: string | null };
+  metadata: Record<string, unknown>;
+  features: string[] | null;
+  importance: { feature: string; value: number }[];
+  terms: { feature: string; weight: number }[] | null;
+  metadata_missing?: boolean;
+}
+
+export interface WhatIfResult {
+  model_version: string;
+  kind: string;
+  need_lo: number;
+  need_mid: number;
+  need_hi: number;
+  drivers: { feature: string; contribution: number }[];
+  context: { cycle_id: number; period_start: string; cutoff: number; likely_band: string; applicants: number; needier_than_share: number | null } | null;
+}
+
+export interface AdminUser { user_id: number; username: string; display_name: string; role: Role; caseworker_id: number | null; caseworker: string | null; active: boolean; created_at: string }
+export interface AdminCaseworker { caseworker_id: number; display_name: string; region: string | null; active: boolean; applications: number; open_cases: number; reviews: number; override_rate: number | null; accounts: string | null }
+export interface Setting { key: string; value: number | null; description: string; updated_by: string | null; updated_at: string }
+export interface AuditEntry { log_id: number; at: string; username: string | null; action: string; target: string | null; details: Record<string, unknown> }
+export interface SystemStatus {
+  api_version: string;
+  database: { version: string; size: string };
+  counts: Record<string, number>;
+  active_models: { purpose: string; model_version: string; kind: string; activated_at: string }[];
+  last: Record<string, string>;
+  last_drift_check: { status: string; window_end: string; created_at: string } | null;
+  security: { development_secret: boolean; default_admin_password: boolean; token_hours: number };
+}

@@ -1,4 +1,6 @@
+import { useState } from "react";
 import { Link, NavLink, Outlet } from "react-router-dom";
+import { PasswordModal } from "../pages/admin/AdminConsole";
 import { useApi } from "../api/hooks";
 import type { Queue } from "../api/types";
 import { GROUP_LABEL, initials, monthLabel } from "../lib/format";
@@ -14,6 +16,7 @@ const ADMIN_NAV = [
   { to: "/households", label: "Households" },
   { to: "/cycles", label: "Funding cycles" },
   { to: "/models", label: "Models & monitoring" },
+  { to: "/admin", label: "Admin console" },
 ];
 const CASEWORKER_NAV = [
   { to: "/", label: "My work", end: true },
@@ -38,6 +41,7 @@ function Sidebar() {
   const { logout } = useAuth();
   const { theme, setTheme } = useTheme();
   const nav = user.role === "admin" ? ADMIN_NAV : CASEWORKER_NAV;
+  const [changingPassword, setChangingPassword] = useState(false);
   const queue = useApi<Queue>("/reviews/queue", { limit: 1 }).data;
   const badge = queue ? (user.role === "admin" ? queue.counts.all : queue.counts.mine) : null;
 
@@ -63,10 +67,12 @@ function Sidebar() {
         <span className="avatar" aria-hidden="true">{initials(user.display_name)}</span>
         <div className="stack" style={{ gap: 0, flex: 1, minWidth: 0 }}>
           <span style={{ fontWeight: 600, fontSize: 13 }}>{user.display_name}</span>
-          <span className="small muted">{user.role === "admin" ? "Admin" : "Caseworker"}</span>
+          <span className="small muted">{user.role === "admin" ? "Admin" : "Caseworker"} · <button type="button" className="btn ghost small"
+            style={{ height: "auto", padding: 0, fontSize: 12 }} onClick={() => setChangingPassword(true)}>Password</button></span>
         </div>
         <button type="button" className="btn ghost small" onClick={logout}>Sign out</button>
       </div>
+      {changingPassword && <PasswordModal onClose={() => setChangingPassword(false)} />}
     </nav>
   );
 }

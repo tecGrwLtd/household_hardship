@@ -1,10 +1,13 @@
 import { useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useApi, useApiMutation } from "../api/hooks";
 import type { Drift, FairnessRow, ModelHealth, ModelVersion, ModelVersionDetail, OverrideTrendRow } from "../api/types";
 import { Meter } from "../components/charts";
 import { Button, Card, Check, ErrorBox, Field, Loading, Modal, PageHeader, Pill, Stat, TextArea } from "../components/ui";
 import { day, featureLabel, monthLabel, monthShort, NEED_LABEL, num, pct } from "../lib/format";
 import { usePageFilters } from "../state/filters";
+import ModelCards from "./models/ModelCards";
+import WhatIf from "./models/WhatIf";
 
 const groupLabel = (g: string) => NEED_LABEL[g] ?? g.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
 
@@ -24,8 +27,24 @@ const ATTR_LABEL: Record<string, string> = {
   region: "Region", need_category: "Need", application_channel: "Channel", referral_source: "Referral",
 };
 
+const TABS = [["overview", "Monitoring"], ["cards", "Model cards"], ["try", "Try the model"]] as const;
+
 export default function Models() {
   usePageFilters([]);
+  const [search, setSearch] = useSearchParams();
+  const tab = search.get("tab") ?? "overview";
+  return (
+    <>
+      <PageHeader title="Models & monitoring" subtitle="What decides, how well it did before going live, whether it still fits — and a place to try it" />
+      <div className="underline-tabs" role="tablist">
+        {TABS.map(([k, label]) => <button key={k} type="button" role="tab" aria-selected={tab === k} onClick={() => setSearch({ tab: k })}>{label}</button>)}
+      </div>
+      {tab === "cards" ? <ModelCards /> : tab === "try" ? <WhatIf /> : <Monitoring />}
+    </>
+  );
+}
+
+function Monitoring() {
   const health = useApi<ModelHealth>("/dashboard/model-health");
   const versions = useApi<ModelVersion[]>("/models");
   const drift = useApi<Drift>("/dashboard/drift").data;
@@ -40,7 +59,6 @@ export default function Models() {
   if (health.error) return <ErrorBox error={health.error} />;
   return (
     <>
-      <PageHeader title="Models & monitoring" subtitle="What decides, how well it did before going live, and whether it still fits the people applying" />
       <div className="grid" style={{ gridTemplateColumns: "minmax(0,1.3fr) minmax(0,1fr)" }}>
         <NeedModelCard health={health.data} detail={needDetail} />
         <div className="stack" style={{ gap: 14 }}>

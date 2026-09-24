@@ -26,7 +26,7 @@ the build on :3000 and proxies `/api` to the API container.
 | `src/state/theme.tsx` | Light / dark, remembered per browser, first choice from the system setting |
 | `src/api/` | Fetch wrapper (`/api` + bearer token), React Query hooks, response types |
 | `src/components/` | Layout (sidebar), UI kit, charts, the case view shared by the application page and the review queue |
-| `src/pages/` | One file per screen |
+| `src/pages/` | One file per screen; `models/` holds the model cards and "Try the model" tabs, `admin/` the admin console |
 | `src/lib/format.ts` | Labels and number/date formatting — one place for wording |
 | `src/styles.css` | Design tokens for both themes and all component styles |
 
@@ -36,6 +36,7 @@ the build on :3000 and proxies `/api` to the API container.
 |---|---|---|
 | Home | Dashboard | My work |
 | Applications, review queue, households, new application | ✓ (all) | ✓ (own by default) |
-| Funding cycles, models & monitoring | ✓ | — |
+| Funding cycles, models & monitoring, admin console | ✓ | — |
+| Change own password | ✓ | ✓ |
 
 The API enforces the same rules; the menu only mirrors them.

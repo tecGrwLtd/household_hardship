@@ -117,6 +117,10 @@ every filter except `month` (a worklist must not hide an older appeal).
 | GET | `/dashboard/outcomes` | What happened: applications by status |
 | GET | `/dashboard/monthly` | Applicants per month and support group, `months` back from the selected month |
 | GET | `/dashboard/districts` | Applicants and amounts per district |
+| GET | `/dashboard/trend` | Per month for `months` (default 12): applicants, requested, awarded and the amount, decided, helped before, budget. Drives the sparklines and the money chart |
+| GET | `/dashboard/heatmap` | Applicants per region × support group |
+| GET | `/dashboard/channels` | How people applied (`channel`) and who referred them (`referral`) |
+| GET | `/dashboard/amounts` | Requests bucketed by size, with how many in each bucket were awarded |
 | GET | `/dashboard/monthly-support` | "20 applicants this month → education / health / financial"; of those, how many were helped before, within a year or more than a year ago; how many were awarded. `?start=&end=` (month dates) |
 | GET | `/dashboard/monthly-applications` | Per month × need category, with the decision-band mix |
 | GET | `/dashboard/repeat-support` | Totals for first-time vs repeat applicants and never / within 1 year / over 1 year helped |
@@ -135,6 +139,24 @@ every filter except `month` (a worklist must not hide an older appeal).
 | GET | `/models/active` | `?purpose=need` (default, allocation) or `repeat` (planning forecast) — one active model per purpose |
 | GET | `/models/{version}` | Full evaluation report |
 | POST | `/models/{version}/activate` | `{force?, reason?}` — replaces the active model of the same purpose only. Refused (409) if the version's gates failed, unless forced with a reason, which is recorded |
+| GET | `/models/{version}/card` | Everything needed to present a version: description, training facts, evaluation against the baselines, feature importance (mean \|SHAP\|, coefficients or rule terms), settings and launch checks |
+| POST | `/models/what-if` | Score an imagined household (`version` optional, defaults to the active need model). Returns the estimate, range, top reasons, and where it would have landed in the latest allocated cycle. Nothing is stored |
+
+All model endpoints are admin-only.
+
+### Admin console (admin only)
+
+| Method | Path | Notes |
+|---|---|---|
+| GET / POST | `/admin/users` | List accounts; create one `{username, password, display_name, role, caseworker_id?}` |
+| PATCH | `/admin/users/{id}` | Change display name, role, linked caseworker, `active`, or reset the password. You cannot deactivate or demote yourself, nor the last active admin |
+| GET / POST | `/admin/caseworkers` | Caseworkers with workload (open reviews, decisions, override rate); add one |
+| PATCH | `/admin/caseworkers/{id}` | Rename, reassign region, (de)activate |
+| GET | `/admin/settings` | Programme settings with their current value, description and allowed range |
+| PUT | `/admin/settings/{key}` | `{value}`. Validated: `random_audit_rate` 0.03–0.05 (the spec's 3–5%), `override_rate_floor` 0–0.5, `max_exclusion_error` / `max_subgroup_gap` 0–1 or null, `poverty_line` positive or null (null = from the survey data). Takes effect on the next allocation, model health check or training run |
+| GET | `/admin/audit-log` | `?action=&limit=&offset=`: sign-ins, data entry, allocations, reviews, activations, setting and account changes. Protected attributes are never written to it |
+| GET | `/admin/system` | Row counts, active models, database version and size, last drift report, recent activity, and whether development secrets are still in use |
+| POST | `/auth/password` | Any signed-in user: `{current_password, new_password}` |
 
 Training, forecasting and drift reports are not API calls: `python -m
 backend.ml train | train-repeat | forecast | drift` (see

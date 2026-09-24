@@ -69,6 +69,32 @@ docker compose run --rm api python -m backend.ml --dsn $DSN activate <version>
 docker compose run --rm api python -m backend.ml --dsn $DSN score
 ```
 
+### Showing it to a client
+
+Sign in as `admin`. Then walk through these pages:
+
+- **Dashboard** (`/`): headline figures with 12-month sparklines; money
+  requested against money awarded and the budget; outcomes; support types;
+  need by region; how people apply; request sizes; districts; the monthly
+  mix; expected returns; platform health. The filters in the sidebar start
+  on all months.
+- **Models & monitoring** (`/models`):
+  - *Monitoring* shows live health and drift.
+  - *Model cards* (`?tab=cards`) shows every trained version: what it is,
+    its metrics against the baselines, fairness, what drives it, and its
+    settings and launch checks.
+  - *Try the model* (`?tab=try`) scores an imagined household and
+    explains why. It saves nothing.
+- **Admin console** (`/admin`):
+  - system overview;
+  - accounts (add, change role, reset a password, deactivate);
+  - caseworkers and their workload;
+  - programme settings (audit rate, override-rate floor, fairness
+    thresholds, poverty line), all validated and logged;
+  - the activity log of every sign-in, decision, allocation, activation and
+    setting change;
+  - the full API catalogue, with links to the interactive docs at :8080/docs.
+
 `docker compose down -v` gives you a clean slate. Passwords and the token
 secret in `docker-compose.yml` are development defaults — set
 `HARDSHIP_DB_PASSWORD`, `HARDSHIP_ADMIN_PASSWORD` and `HARDSHIP_SECRET` for
@@ -98,6 +124,7 @@ then `views.sql` re-applied:
 ```bash
 docker compose exec -T db psql -U hardship_app -d hardship_platform < db/migrations/001_phase3_repeat_and_drift.sql
 docker compose exec -T db psql -U hardship_app -d hardship_platform < db/migrations/002_users_and_roles.sql
+docker compose exec -T db psql -U hardship_app -d hardship_platform < db/migrations/003_settings_and_audit_log.sql
 docker compose exec -T db psql -U hardship_app -d hardship_platform < db/views.sql
 ```
 

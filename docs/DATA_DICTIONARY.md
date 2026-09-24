@@ -175,6 +175,29 @@ cycle in the run — those are the numbers to judge; per-cycle rows are for
 trends only. Groups with fewer than 20 bottom-decile applicants are omitted
 (`audit.MIN_GROUP_N`): too small to read, and a privacy risk.
 
+## `platform_settings`
+
+Programme settings an admin changes in the console, one row per key. Each row
+holds a JSONB `value`, `updated_by` and `updated_at`. The API validates every
+write (`backend/api/platform.py`) and logs it.
+
+- `random_audit_rate`: share of each cycle drawn as a random audit sample.
+- `override_rate_floor`: reviewer override rate below which model health is
+  flagged, because reviewers may be rubber-stamping.
+- `max_exclusion_error` and `max_subgroup_gap`: optional launch thresholds
+  for activating a need model.
+- `poverty_line`: optional override. When it is null, the line comes from the
+  survey data.
+
+## `audit_log`
+
+An append-only activity record. Each row holds `username`, `action` (for
+example `application.submit`, `household.create`, `cycle.allocate`,
+`review.decide`, `model.activate`, `setting.update`, `user.update`),
+`target`, JSONB `details` and `at` (timestamp). Model activations from the command
+line are logged as user `command line`. Protected attributes are never
+written here.
+
 ## Dashboard views — see `db/views.sql`
 
 `v_monthly_support`, `v_monthly_applications`, `v_repeat_support`, `v_cycle_summary`, `v_repeat_outcomes`, `v_repeat_forecast` (and the `support_group()` function) — described

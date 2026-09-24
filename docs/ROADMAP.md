@@ -76,5 +76,15 @@ penalise people for having needed help before.
 - [x] **Phase 2 — Backend API.** (done 23 Sep 2026) FastAPI: data entry (households, surveys, applications, write-only protected attributes), cycles + preview + allocation against remaining budget, review queue with override tracking and appeals, dashboard endpoints, model management with gated activation; active-model loader (placeholder until a trained version is activated); demo admin auth; Docker Compose for API + DB; API integration tests. Guide: `docs/API.md`.
 - [x] **Phase 3 — Monitoring + repeat model.** (done 24 Sep 2026) Repeat-support forecaster, chosen by evaluation between a regularised LightGBM and a history-only logistic regression (the latter wins on the synthetic data), calibration only where it helps, planning-only with its own registry purpose; `v_repeat_forecast` (expected vs actual returns); monthly drift report (PSI per input and score, SHAP stability, subgroup means, coverage on post-training outcomes) with a reference profile stored at training; override-rate trend; migration file for existing databases.
 - [x] **Phase 4 — Frontend.** (done 24 Sep 2026) Web app on :3000 with two roles (admin: dashboard, applications, review, households, cycles, models; caseworker: my work, applications, review, households), new-application wizard, survey-wave entry, audit-only questions, allocation with preview and confirmation, gated model activation, global sidebar filters, light and dark themes. Backend additions: accounts and roles, application-level facts view behind every filtered figure, paging and search. Design: the "Hardship Platform UI" canvas.
+- [x] **Phase 4b: Showcase and admin console.** (done 24 Sep 2026)
+  - Dashboard: more chart types (sparklines, money line chart, outcome
+    donut, region heatmap, channels, request sizes). Filters default to all
+    months.
+  - Model cards for every trained version: metrics against the baselines,
+    fairness, drivers, settings and checks.
+  - "Try the model" what-if scoring.
+  - Admin console: accounts, caseworkers, validated programme settings, a
+    full activity log, system status and the API catalogue.
+  - Migration `003`.
 
 Demo target: Phases 0–1 plus the dashboard endpoints of Phase 2.

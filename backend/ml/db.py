@@ -121,6 +121,11 @@ def activate_model_version(dsn: str, version: str) -> str | None:
         prev = cur.fetchone()
         cur.execute("""UPDATE model_versions SET status = 'active', activated_at = now()
                        WHERE model_version = %s""", (version,))
+        # Same activity log as the admin console, so every activation is on record.
+        cur.execute("""INSERT INTO audit_log (username, action, target, details)
+                       SELECT 'command line', 'model.activate', %s, %s
+                       WHERE to_regclass('audit_log') IS NOT NULL""",
+                    (version, Json({"retired": prev[0] if prev else None, "purpose": row[0], "via": "python -m backend.ml activate"})))
     conn.close()
     return prev[0] if prev else None
 

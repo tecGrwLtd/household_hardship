@@ -12,6 +12,7 @@ import Login from "./pages/Login";
 import Models from "./pages/Models";
 import NewApplication from "./pages/NewApplication";
 import Review from "./pages/Review";
+import AdminConsole from "./pages/admin/AdminConsole";
 import { useAuth } from "./state/auth";
 
 export default function App() {
@@ -32,6 +33,7 @@ export default function App() {
           <Route path="households" element={<Households />} />
           <Route path="cycles" element={adminOnly(<Cycles />)} />
           <Route path="models" element={adminOnly(<Models />)} />
+          <Route path="admin" element={adminOnly(<AdminConsole />)} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>

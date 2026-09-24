@@ -56,6 +56,7 @@ def login(form: OAuth2PasswordRequestForm = Depends(), conn: Connection = Depend
     if row is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Wrong username or password",
                             headers={"WWW-Authenticate": "Bearer"})
+    conn.execute(text("INSERT INTO audit_log (username, action) VALUES (:u, 'auth.login')"), {"u": row["username"]})
     expires = datetime.now(timezone.utc) + timedelta(hours=settings.token_hours)
     claims = {"sub": row["username"], "uid": row["user_id"], "name": row["display_name"],
               "role": row["role"], "cw": row["caseworker_id"], "exp": expires}
