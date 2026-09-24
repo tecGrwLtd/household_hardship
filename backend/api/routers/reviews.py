@@ -4,6 +4,8 @@ person's decision finalises it (GDPR Art. 22 / EU AI Act Art. 14; design
 spec: the automated path never issues a final refusal)."""
 from __future__ import annotations
 
+from dataclasses import replace
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
@@ -32,7 +34,9 @@ def review_queue(f: Filters = Depends(filters), mine: bool | None = Query(None, 
     otherwise. The global filters apply except the month: a worklist must
     not hide an older appeal. `counts` are for the tabs."""
     mine = (not user.is_admin) if mine is None else mine
-    where, params = f.where(month=False)
+    # `mine` is also a global-filter parameter; here it only picks the tab,
+    # so the tab counts (all / mine / appeals) stay about the whole queue.
+    where, params = replace(f, caseworker_id=None).where(month=False)
     base = f"f.status IN ('in_review', 'appealed') AND {where}"
     if cycle_id is not None:
         base += " AND f.cycle_id = :cycle"

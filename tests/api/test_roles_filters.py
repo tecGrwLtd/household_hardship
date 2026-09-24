@@ -46,6 +46,8 @@ def test_caseworker_work_is_attributed_to_them(client, auth, cw, sql):
 
     queue = client.get("/reviews/queue", headers=cw).json()
     assert queue["mine"] is True and all(i["caseworker_id"] == 1 for i in queue["items"])
+    # the tab counts describe the whole queue, not just the caseworker's slice
+    assert queue["counts"]["all"] > queue["counts"]["mine"] == len(queue["items"])
     assert app_id in {i["application_id"] for i in queue["items"]}
     assert client.post(f"/reviews/{app_id}", headers=cw, json={"decision": "deny"}).status_code == 422   # no reason
     review = client.post(f"/reviews/{app_id}", headers=cw,
