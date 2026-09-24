@@ -15,6 +15,9 @@ import pandas as pd
 
 from .baselines import RuleBasedModel
 from .model import LGBMNeedModel
+from .repeat import HistoryRepeatModel, LGBMRepeatModel
+
+ARTIFACT_KINDS = {m.kind: m for m in (LGBMNeedModel, LGBMRepeatModel, HistoryRepeatModel)}
 
 MODELS_DIR = Path(__file__).resolve().parents[2] / "models"
 PLACEHOLDER_VERSION = "rules-v0"   # seeded as active in schema.sql
@@ -41,7 +44,7 @@ def git_commit() -> str | None:
         return None
 
 
-def save(model: LGBMNeedModel, version: str, metadata: dict, metrics: dict,
+def save(model, version: str, metadata: dict, metrics: dict,
          models_dir: Path = MODELS_DIR) -> Path:
     directory = models_dir / version
     meta = {"version": version, **model.save(directory), **metadata}
@@ -54,13 +57,19 @@ def load(kind: str, artifact_path: str | Path | None):
     """Build the scorer for a model_versions row."""
     if kind == RuleBasedModel.kind:
         return RuleBasedModel()
-    if kind == LGBMNeedModel.kind:
+    if kind in ARTIFACT_KINDS:
         directory = Path(artifact_path)
         if not directory.is_absolute():
             directory = MODELS_DIR.parent / directory
-        metadata = json.loads((directory / "metadata.json").read_text(encoding="utf-8"))
-        return LGBMNeedModel.load(directory, metadata)
+        return ARTIFACT_KINDS[kind].load(directory, read_metadata(directory))
     raise ValueError(f"unknown model kind {kind!r}")
+
+
+def read_metadata(directory: str | Path) -> dict:
+    directory = Path(directory)
+    if not directory.is_absolute():
+        directory = MODELS_DIR.parent / directory
+    return json.loads((directory / "metadata.json").read_text(encoding="utf-8"))
 
 
 def relative_to_project(path: Path) -> str:

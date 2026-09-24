@@ -261,7 +261,8 @@ COMMENT ON COLUMN applications.caseworker_id IS
 -- (models/<version>/: model files, metadata.json, metrics.json).
 CREATE TABLE model_versions (
     model_version   VARCHAR(30) PRIMARY KEY,
-    kind            VARCHAR(20) NOT NULL,           -- 'lgbm_quantile' | 'rules'
+    kind            VARCHAR(20) NOT NULL,           -- 'lgbm_quantile' | 'rules' | 'repeat_lgbm' | 'repeat_history'
+    purpose         VARCHAR(10) NOT NULL DEFAULT 'need',   -- 'need' (allocation) | 'repeat' (planning forecast)
     status          model_status_enum NOT NULL DEFAULT 'candidate',
     artifact_path   TEXT,                           -- relative to the project root; NULL for 'rules'
     trained_at      TIMESTAMPTZ,
@@ -272,9 +273,9 @@ CREATE TABLE model_versions (
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     activated_at    TIMESTAMPTZ
 );
-CREATE UNIQUE INDEX one_active_model_version ON model_versions (status) WHERE status = 'active';
+CREATE UNIQUE INDEX one_active_model_per_purpose ON model_versions (purpose) WHERE status = 'active';
 COMMENT ON TABLE model_versions IS
-    'Registry of need-model versions. Exactly one is active at a time.';
+    'Registry of model versions. At most one active per purpose (need, repeat).';
 
 -- The transparent rule-based placeholder (backend/ml/baselines.py) is live
 -- from day one, so the platform works before any model is trained.
@@ -299,6 +300,29 @@ CREATE TABLE model_scores (
 );
 CREATE INDEX idx_model_scores_application_id ON model_scores(application_id);
 CREATE INDEX idx_model_scores_cycle_id ON model_scores(cycle_id);
+
+-- Repeat-support forecast per application (backend/ml/repeat.py). PLANNING
+-- ONLY: feeds dashboard forecasts, never allocation.
+CREATE TABLE repeat_forecasts (
+    forecast_id     BIGSERIAL PRIMARY KEY,
+    application_id  BIGINT NOT NULL REFERENCES applications(application_id),
+    model_version   VARCHAR(30) NOT NULL REFERENCES model_versions(model_version),
+    p_return_1y     NUMERIC(5, 4) NOT NULL,          -- P(household applies again within 365 days)
+    forecast_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_repeat_forecasts_application_id ON repeat_forecasts(application_id);
+
+-- Monthly drift reports for the need model (backend/ml/drift.py).
+CREATE TABLE drift_reports (
+    report_id       BIGSERIAL PRIMARY KEY,
+    model_version   VARCHAR(30) NOT NULL REFERENCES model_versions(model_version),
+    window_start    DATE NOT NULL,
+    window_end      DATE NOT NULL,
+    applications    INTEGER NOT NULL,
+    status          VARCHAR(10) NOT NULL,            -- ok | watch | alert
+    report          JSONB NOT NULL,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 
 CREATE TABLE application_reviews (
     review_id        BIGSERIAL PRIMARY KEY,

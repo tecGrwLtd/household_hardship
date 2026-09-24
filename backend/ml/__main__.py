@@ -9,6 +9,10 @@
                                              (or --version), write model_scores
     python -m backend.ml models              list registered versions
 
+    python -m backend.ml train-repeat        evaluate + fit the repeat-support forecaster (planning only)
+    python -m backend.ml forecast            write repeat forecasts with the active repeat model
+    python -m backend.ml drift               drift report for the active need model (run monthly)
+
 Database: --dsn, else $HARDSHIP_DSN, else the local docker-compose database.
 """
 from __future__ import annotations
@@ -21,7 +25,7 @@ import sys
 import numpy as np
 import pandas as pd
 
-from . import db, registry
+from . import db, drift, registry, repeat
 from .allocate import allocate_all_cycles
 from .evaluate import PRIMARY, evaluate, format_report
 from .features import add_poverty_gap, build_features, feature_matrix
@@ -89,6 +93,8 @@ def cmd_train(args) -> None:
         "trained_at": pd.Timestamp.now(tz="UTC").isoformat(),
         "git_commit": registry.git_commit(),
         "seed": args.seed,
+        # what `drift` compares later applicants against
+        "reference": drift.reference_profile(model, full),
     }
     path = registry.save(model, version, metadata, metrics)
     print(f"Saved {path}")
@@ -109,12 +115,14 @@ def cmd_activate(args) -> None:
         sys.exit(f"Refusing to activate '{args.version}': evaluation gates failed {failed}. "
                  f"Use --force to override (and record why).")
     prev = db.activate_model_version(args.dsn, args.version)
-    print(f"'{args.version}' is now active" + (f" (retired '{prev}')" if prev else "") + ".")
-    print("Re-score applications with:  python -m backend.ml score")
+    print(f"'{args.version}' is now the active {row['purpose']} model" + (f" (retired '{prev}')" if prev else "") + ".")
+    print("Next:  python -m backend.ml " + ("forecast" if row["purpose"] == "repeat" else "score"))
 
 
 def cmd_score(args) -> None:
     row = db.get_model_version(args.dsn, args.version)
+    if row["purpose"] != "need":
+        sys.exit(f"'{row['model_version']}' is a {row['purpose']} model; `score` needs a need model")
     model = registry.load(row["kind"], row["artifact_path"])
     version = row["model_version"]
     print(f"Scoring with '{version}' ({row['kind']}, {row['status']})")
@@ -137,6 +145,89 @@ def cmd_score(args) -> None:
     s = pd.DataFrame(summaries)
     print(f"Committed (auto + audit approvals): {s['committed'].sum() / s['budget'].sum():.0%} of budget; "
           f"{int((s['remaining'] < 0).sum())} of {len(s)} cycles overshoot through the mandatory audit sample")
+
+
+def cmd_train_repeat(args) -> None:
+    ds = load_dataset(args.dsn)
+    full = ds["full"]
+    labels = full[["application_id"]].merge(repeat.repeat_labels(full), on="application_id")
+    obs = labels["observable"].values
+    feats, y = full[obs].reset_index(drop=True), labels.loc[obs, "returned"].values
+    print(f"Repeat forecast: {int(obs.sum())} applications with a full {repeat.REPEAT_HORIZON_DAYS}-day "
+          f"follow-up; {y.mean():.0%} of those households applied again within the horizon")
+
+    report = repeat.evaluate_repeat(feats, y, full.loc[obs, "area_code"].values)
+    print("\n" + pd.DataFrame({k: {m: v for m, v in r.items() if m != "calibration"}
+                                for k, r in report["models"].items()}).T.to_string(float_format=lambda v: f"{v:.4f}"))
+    print(f"  base-rate Brier: {report['brier_base_rate']:.4f}; chosen: {report['best']} (lowest Brier)")
+    print("  gates: " + ", ".join(f"{k} {'ok' if v else 'FAILED'}" for k, v in report["gates"].items() if k != "passed"))
+
+    best = report["best"]
+    model = repeat.REPEAT_CANDIDATES[best]().fit(feats, y)
+    if report["models"][best]["calibrated"]:
+        model.calibrate(report["oof_raw"][best], y)
+    version = args.version or registry.new_version("repeat")
+    metrics = {k: v for k, v in report.items() if k != "oof_raw"}
+    metadata = {"trained_at": pd.Timestamp.now(tz="UTC").isoformat(), "training_rows": int(obs.sum()),
+                "git_commit": registry.git_commit(), "seed": args.seed}
+    path = registry.save(model, version, metadata, metrics)
+    db.register_model_version(args.dsn, version, model.kind, registry.relative_to_project(path),
+                              int(obs.sum()), None, metrics, purpose="repeat")
+    print(f"Saved {path}; registered '{version}' as a candidate "
+          f"({'gates PASSED' if report['gates']['passed'] else 'gates FAILED'}).")
+    print(f"Make it live with:  python -m backend.ml activate {version}")
+
+
+def cmd_forecast(args) -> None:
+    row = db.get_model_version(args.dsn, args.version, purpose="repeat")
+    model = registry.load(row["kind"], row["artifact_path"])
+    raw = db.load_raw_tables(args.dsn)
+    feats = build_features(raw["households"], raw["surveys"], raw["applications"], raw["area"])
+    p = model.predict_proba(feats)
+    db.write_repeat_forecasts(args.dsn, feats["application_id"], p, row["model_version"])
+    print(f"Wrote {len(p)} repeat forecasts with '{row['model_version']}': "
+          f"on average {p.mean():.0%} expected to apply again within a year")
+
+
+def cmd_drift(args) -> None:
+    row = db.get_model_version(args.dsn, purpose="need")
+    if row["kind"] == "rules":
+        sys.exit("The active need model is the rule-based placeholder; drift is checked for trained models.")
+    metadata = registry.read_metadata(row["artifact_path"])
+    if "reference" not in metadata:
+        sys.exit(f"'{row['model_version']}' was trained before drift references were stored; retrain it.")
+    model = registry.load(row["kind"], row["artifact_path"])
+
+    raw = db.load_raw_tables(args.dsn)
+    feats = build_features(raw["households"], raw["surveys"], raw["applications"], raw["area"])
+    submitted = pd.to_datetime(feats["submitted_at"], utc=True).dt.tz_localize(None).dt.normalize()
+    end = pd.Timestamp(args.end) if args.end else submitted.max()
+    start = pd.Timestamp(args.start) if args.start else end - pd.Timedelta(days=args.days - 1)
+    window = feats[(submitted >= start) & (submitted <= end)].reset_index(drop=True)
+    if window.empty:
+        sys.exit(f"No applications between {start.date()} and {end.date()}")
+
+    groups = (window[["household_id", "area_code"]]
+              .merge(raw["protected"][["household_id", "gender_head", "disability", "age_band"]],
+                     on="household_id", how="left")
+              .merge(raw["area"][["area_code", "urban_rural", "region"]], on="area_code", how="left")
+              .drop(columns=["household_id", "area_code"]))
+    # Outcomes are only known for approved/audited applicants (selective
+    # labels), and only those submitted after training say anything new —
+    # earlier ones were in the training set, so their coverage is in-sample.
+    trained_at = pd.Timestamp(metadata["trained_at"]).tz_convert(None)
+    known = (window["status"].isin(ELIGIBLE_STATUSES) & window["consumption_pc"].notna()
+             & (pd.to_datetime(window["submitted_at"], utc=True).dt.tz_localize(None) > trained_at))
+    truth = (metadata["poverty_line"] - window["consumption_pc"]).clip(lower=0).where(known)
+
+    report = drift.drift_report(model, metadata["reference"], window, groups, truth)
+    report_id = db.write_drift_report(args.dsn, row["model_version"], start.date(), end.date(), report)
+    print(f"Drift report #{report_id} for '{row['model_version']}', {start.date()} to {end.date()} "
+          f"({report['applications']} applications): {report['status'].upper()}")
+    print(f"  score PSI {report['score_psi']:.3f}; SHAP top-{drift.SHAP_TOP} overlap "
+          f"{report['shap_stability']['overlap']:.0%}; coverage {report['interval_coverage']}")
+    for f in report["features_shifted"][:10]:
+        print(f"  {f['level']:5s} {f['feature']}: PSI {f['psi']:.3f}")
 
 
 def cmd_models(args) -> None:
@@ -163,6 +254,17 @@ def main(argv=None) -> None:
     p.add_argument("--cycle", type=int, help="only this funding cycle")
     p.set_defaults(func=cmd_score)
     sub.add_parser("models", help="list registered versions").set_defaults(func=cmd_models)
+    p = sub.add_parser("train-repeat", help="evaluate, fit and register a repeat-support forecaster")
+    p.add_argument("--version", help="version name (default repeat-<utc timestamp>)")
+    p.set_defaults(func=cmd_train_repeat)
+    p = sub.add_parser("forecast", help="write repeat forecasts with the active repeat model")
+    p.add_argument("--version", help="forecast with this version instead of the active one")
+    p.set_defaults(func=cmd_forecast)
+    p = sub.add_parser("drift", help="drift report for the active need model")
+    p.add_argument("--start", help="window start date (default: --days before --end)")
+    p.add_argument("--end", help="window end date (default: latest application)")
+    p.add_argument("--days", type=int, default=30, help="window length when --start is not given")
+    p.set_defaults(func=cmd_drift)
 
     args = ap.parse_args(argv)
     args.func(args)

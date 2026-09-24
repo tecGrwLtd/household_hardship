@@ -93,29 +93,31 @@ def write_fairness_audits(dsn: str, audits: pd.DataFrame, model_version: str) ->
 
 def register_model_version(dsn: str, version: str, kind: str, artifact_path: str | None,
                            training_rows: int | None, data_hash: str | None, metrics: dict,
-                           notes: str | None = None) -> None:
-    """Record a newly trained version as a candidate. It scores nothing
+                           purpose: str = "need", notes: str | None = None) -> None:
+    """Record a newly trained version as a candidate. It is used for nothing
     until activate_model_version() switches it on."""
     with get_conn(dsn) as conn, conn.cursor() as cur:
         cur.execute(
             """INSERT INTO model_versions
-               (model_version, kind, status, artifact_path, trained_at, training_rows, data_hash, metrics, notes)
-               VALUES (%s, %s, 'candidate', %s, now(), %s, %s, %s, %s)""",
-            (version, kind, artifact_path, training_rows, data_hash, Json(metrics), notes),
+               (model_version, kind, purpose, status, artifact_path, trained_at, training_rows, data_hash, metrics, notes)
+               VALUES (%s, %s, %s, 'candidate', %s, now(), %s, %s, %s, %s)""",
+            (version, kind, purpose, artifact_path, training_rows, data_hash, Json(metrics), notes),
         )
     conn.close()
 
 
 def activate_model_version(dsn: str, version: str) -> str | None:
-    """Make `version` the one live model; the previously active one is
-    retired. Returns the previous version. One transaction, so there is never
-    a moment with zero or two active models."""
+    """Make `version` the live model for its purpose (need or repeat); the
+    version previously active for that purpose is retired. Returns it. One
+    transaction, so there is never a moment with zero or two active."""
     with get_conn(dsn) as conn, conn.cursor() as cur:
-        cur.execute("SELECT 1 FROM model_versions WHERE model_version = %s", (version,))
-        if cur.fetchone() is None:
+        cur.execute("SELECT purpose FROM model_versions WHERE model_version = %s", (version,))
+        row = cur.fetchone()
+        if row is None:
             raise LookupError(f"no model version {version!r}")
         cur.execute("""UPDATE model_versions SET status = 'retired'
-                       WHERE status = 'active' AND model_version <> %s RETURNING model_version""", (version,))
+                       WHERE status = 'active' AND purpose = %s AND model_version <> %s
+                       RETURNING model_version""", (row[0], version))
         prev = cur.fetchone()
         cur.execute("""UPDATE model_versions SET status = 'active', activated_at = now()
                        WHERE model_version = %s""", (version,))
@@ -123,17 +125,17 @@ def activate_model_version(dsn: str, version: str) -> str | None:
     return prev[0] if prev else None
 
 
-def get_model_version(dsn: str, version: str | None = None) -> dict:
-    """One registry row — the active version when `version` is None."""
+def get_model_version(dsn: str, version: str | None = None, purpose: str = "need") -> dict:
+    """One registry row — the active version for `purpose` when `version` is None."""
     with get_conn(dsn) as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
         if version is None:
-            cur.execute("SELECT * FROM model_versions WHERE status = 'active'")
+            cur.execute("SELECT * FROM model_versions WHERE status = 'active' AND purpose = %s", (purpose,))
         else:
             cur.execute("SELECT * FROM model_versions WHERE model_version = %s", (version,))
         row = cur.fetchone()
     conn.close()
     if row is None:
-        raise LookupError(f"no model version {version!r}" if version else "no active model version")
+        raise LookupError(f"no model version {version!r}" if version else f"no active {purpose} model version")
     return dict(row)
 
 
@@ -142,8 +144,29 @@ def list_model_versions(dsn: str) -> pd.DataFrame:
     try:
         with engine.connect() as conn:
             return pd.read_sql(
-                """SELECT model_version, kind, status, trained_at, activated_at, training_rows,
+                """SELECT model_version, purpose, kind, status, trained_at, activated_at, training_rows,
                           (metrics->'gates'->>'passed')::boolean AS gates_passed
                    FROM model_versions ORDER BY created_at""", conn)
     finally:
         engine.dispose()
+
+
+def write_repeat_forecasts(dsn: str, application_ids, probabilities, model_version: str) -> None:
+    with get_conn(dsn) as conn, conn.cursor() as cur:
+        cur.executemany(
+            "INSERT INTO repeat_forecasts (application_id, model_version, p_return_1y) VALUES (%s, %s, %s)",
+            [(int(a), model_version, round(float(p), 4)) for a, p in zip(application_ids, probabilities)],
+        )
+    conn.close()
+
+
+def write_drift_report(dsn: str, model_version: str, window_start, window_end, report: dict) -> int:
+    with get_conn(dsn) as conn, conn.cursor() as cur:
+        cur.execute(
+            """INSERT INTO drift_reports (model_version, window_start, window_end, applications, status, report)
+               VALUES (%s, %s, %s, %s, %s, %s) RETURNING report_id""",
+            (model_version, window_start, window_end, report["applications"], report["status"], Json(report)),
+        )
+        report_id = cur.fetchone()[0]
+    conn.close()
+    return report_id
