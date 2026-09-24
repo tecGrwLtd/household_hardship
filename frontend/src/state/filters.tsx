@@ -13,7 +13,7 @@ export type FilterValues = Record<FilterKey, string>;
 
 export const EMPTY: FilterValues = { month: "", support_group: "", region: "", area_code: "", urban_rural: "" };
 // v2: the default became "everything" — older saved selections are left behind.
-const KEY = "hf.filters.v2";
+const KEY = "hf.filters.v3"; // v3: five support groups; a saved old group would be rejected by the API
 
 interface FiltersState {
   values: FilterValues;

@@ -11,7 +11,7 @@ from fastapi import Depends, Query
 
 from .auth import User, current_user
 
-SupportGroup = Literal["financial", "health", "education", "bereavement"]
+SupportGroup = Literal["health", "food", "housing_bills", "education_childcare", "funeral_other"]
 
 
 @dataclass(frozen=True)

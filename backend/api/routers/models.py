@@ -105,7 +105,7 @@ class WhatIf(BaseModel):
     female_headed: bool = False
     disability_in_household: bool = False
     chronic_illness: bool = False
-    shocks: list[str] = Field(default_factory=list, description="e.g. ['job_loss', 'bereavement']")
+    shocks: list[str] = Field(default_factory=list, description="e.g. ['job_loss', 'bereavement'] (bereavement = a death in the family)")
     assets: list[str] = Field(default_factory=list, description="e.g. ['phone', 'radio']")
     prior_applications_count: int = Field(0, ge=0)
     days_since_last_application: int | None = Field(None, ge=0)

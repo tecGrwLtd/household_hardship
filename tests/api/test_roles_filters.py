@@ -60,7 +60,7 @@ def test_caseworker_work_is_attributed_to_them(client, auth, cw, sql):
 
 def test_filter_options(client, auth):
     o = client.get("/dashboard/filters", headers=auth).json()
-    assert o["support_groups"] == ["bereavement", "education", "financial", "health"]
+    assert o["support_groups"] == ["health", "food", "housing_bills", "education_childcare", "funeral_other"]
     assert set(o["regions"]) == {"Kigali", "Northern", "Southern", "Eastern", "Western"}
     assert len(o["districts"]) == 30 and o["months"][0] >= o["months"][-1]
 

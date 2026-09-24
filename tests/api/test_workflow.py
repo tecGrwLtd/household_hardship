@@ -149,7 +149,7 @@ def test_protected_attributes_are_write_only(client, auth):
 def test_dashboard_endpoints(client, auth):
     support = client.get("/dashboard/monthly-support", headers=auth, params={"start": "2026-08-01", "end": "2026-08-01"})
     assert support.status_code == 200
-    assert {r["support_group"] for r in support.json()} == {"education", "health", "financial", "bereavement"}
+    assert {r["support_group"] for r in support.json()} == {"health", "food", "housing_bills", "education_childcare", "funeral_other"}
     for path in ("/dashboard/monthly-applications", "/dashboard/repeat-support", "/dashboard/cycles",
                  "/dashboard/model-health", "/dashboard/fairness", "/need-categories", "/cycles"):
         assert client.get(path, headers=auth).status_code == 200, path

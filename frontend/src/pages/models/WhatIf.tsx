@@ -10,7 +10,7 @@ import { BAND, monthLabel, need, NEED_LABEL, pct } from "../../lib/format";
 
 const SHOCKS = ["bereavement", "serious_illness", "job_loss", "eviction", "displacement", "disaster", "crop_failure"];
 const ASSETS = ["phone", "radio", "tv", "fridge", "washing_machine", "bicycle", "motorcycle", "car"];
-const label = (s: string) => s.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
+const label = (s: string) => (s === "bereavement" ? "Death in the family" : s.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase()));
 
 type Form = {
   version: string; area_code: string; need_category: string; amount_requested: number; household_size: number; children_under_5: number;

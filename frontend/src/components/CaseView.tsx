@@ -7,7 +7,7 @@ import { DriverBars, RangeChart } from "./charts";
 import { Card, Pill, StatusPill } from "./ui";
 
 const SHOCKS: [string, string][] = [
-  ["shock_bereavement_12m", "Bereavement"], ["shock_serious_illness_12m", "Serious illness"], ["shock_job_loss_12m", "Job loss"],
+  ["shock_bereavement_12m", "Death in the family"], ["shock_serious_illness_12m", "Serious illness"], ["shock_job_loss_12m", "Job loss"],
   ["shock_eviction_12m", "Eviction"], ["shock_displacement_12m", "Displacement"], ["shock_disaster_12m", "Disaster"],
   ["shock_crop_failure_12m", "Crop failure"],
 ];

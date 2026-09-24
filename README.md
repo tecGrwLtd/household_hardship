@@ -125,6 +125,7 @@ then `views.sql` re-applied:
 docker compose exec -T db psql -U hardship_app -d hardship_platform < db/migrations/001_phase3_repeat_and_drift.sql
 docker compose exec -T db psql -U hardship_app -d hardship_platform < db/migrations/002_users_and_roles.sql
 docker compose exec -T db psql -U hardship_app -d hardship_platform < db/migrations/003_settings_and_audit_log.sql
+docker compose exec -T db psql -U hardship_app -d hardship_platform < db/migrations/004_support_groups.sql
 docker compose exec -T db psql -U hardship_app -d hardship_platform < db/views.sql
 ```
 
@@ -145,10 +146,10 @@ scores in [0,1], etc). See `docs/DATA_DICTIONARY.md` for the full rundown.
 Built directly from what was asked for in the kickoff call:
 
 - **`v_monthly_support`** — the kickoff-call dashboard in one view: per month
-  and support group (education / health / financial / bereavement), how many
+  and support group (health / food / housing & bills / education & childcare / funeral & other), how many
   applied, how many had been helped before — within a year or over a year
   ago — and how many were awarded. This is the "20 applicants this month,
-  broken down into education / health / financial" chart.
+  broken down by support type" chart.
 - **`v_monthly_applications`** — applicant count per month x need category
   (plus its `support_group`), with the current decision-band mix
   (auto-approve / human review / defer / audit-approve). The band columns

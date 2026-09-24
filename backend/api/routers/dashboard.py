@@ -6,6 +6,7 @@ is for admins."""
 from __future__ import annotations
 
 from datetime import date
+from typing import get_args
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import text
@@ -13,7 +14,7 @@ from sqlalchemy.engine import Connection
 
 from ..auth import require_admin
 from ..database import get_conn
-from ..filters import Filters, filters
+from ..filters import Filters, SupportGroup, filters
 from ..platform import get_setting
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
@@ -33,8 +34,9 @@ def filter_options(conn: Connection = Depends(get_conn)):
                                   FROM applications ORDER BY 1 DESC""")).scalars().all()
     districts = conn.execute(text("""SELECT area_code, area_name, region, urban_rural::text AS urban_rural
                                      FROM area_reference ORDER BY area_name""")).mappings().all()
-    groups = conn.execute(text("""SELECT DISTINCT support_group(c) AS g
-                                  FROM unnest(enum_range(NULL::need_category_enum)) c ORDER BY 1""")).scalars().all()
+    groups = conn.execute(text("""SELECT support_group(c) AS g FROM unnest(enum_range(NULL::need_category_enum)) c
+                                  GROUP BY 1 ORDER BY array_position(:order, support_group(c))"""),
+                          {"order": list(get_args(SupportGroup))}).scalars().all()
     return {
         "months": months,
         "support_groups": groups,

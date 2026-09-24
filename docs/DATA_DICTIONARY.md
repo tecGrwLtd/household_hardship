@@ -93,7 +93,7 @@ model-safe (noted below).
 | Column | Notes |
 |---|---|
 | `amount_requested`, `stated_need_amount` | |
-| `need_category` | `rent_arrears / medical / utilities / food / funeral / childcare / education / other`. `education` was added to the spec's list at the client's explicit request in the kickoff call (they described the dashboard breakdown as "education loan / health loan / financial loan") |
+| `need_category` | `rent_arrears / medical / utilities / food / funeral / childcare / education / other`. `education` was added to the spec's list at the client's explicit request in the kickoff call (they described the dashboard breakdown as "education loan / health loan / financial loan"). The dashboard groups categories with `support_group()`: medical → health; food → food; rent arrears, utilities → housing & bills; education, childcare → education & childcare; funeral, other → funeral & other |
 | `days_since_hardship_onset` | Delay often signals isolation, not lower need — don't read it as a negative signal |
 | `prior_applications_count`, `days_since_last_application` | Power the `v_repeat_support` view |
 | `referral_source` | Model it, then audit it — it encodes access to advocacy |

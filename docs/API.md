@@ -61,7 +61,7 @@ them take the same query parameters, all optional:
 | Parameter | Example | Meaning |
 |---|---|---|
 | `month` | `2026-08-01` | Any day in the month |
-| `support_group` | `health` | financial / health / education / bereavement |
+| `support_group` | `health` | `health` / `food` / `housing_bills` / `education_childcare` / `funeral_other` |
 | `region` | `Kigali` | Province |
 | `area_code` | `AR007` | District |
 | `urban_rural` | `rural` | urban / rural |
@@ -78,7 +78,7 @@ every filter except `month` (a worklist must not hide an older appeal).
 |---|---|---|
 | GET | `/areas` | Districts with urban/rural and region |
 | GET | `/caseworkers` | |
-| GET | `/need-categories` | Each category with its support group (education / health / financial / bereavement) |
+| GET | `/need-categories` | Each category with its support group: medical → health; food → food; rent arrears, utilities → housing_bills; education, childcare → education_childcare; funeral, other → funeral_other |
 | GET | `/cycles` | Funding cycles with application counts and totals awarded |
 | POST | `/cycles` | `{period_start, period_end, budget_total}` |
 | GET | `/cycles/{id}/budget` | Budget, awarded so far, remaining |
@@ -121,7 +121,7 @@ every filter except `month` (a worklist must not hide an older appeal).
 | GET | `/dashboard/heatmap` | Applicants per region × support group |
 | GET | `/dashboard/channels` | How people applied (`channel`) and who referred them (`referral`) |
 | GET | `/dashboard/amounts` | Requests bucketed by size, with how many in each bucket were awarded |
-| GET | `/dashboard/monthly-support` | "20 applicants this month → education / health / financial"; of those, how many were helped before, within a year or more than a year ago; how many were awarded. `?start=&end=` (month dates) |
+| GET | `/dashboard/monthly-support` | "20 applicants this month → by support type"; of those, how many were helped before, within a year or more than a year ago; how many were awarded. `?start=&end=` (month dates) |
 | GET | `/dashboard/monthly-applications` | Per month × need category, with the decision-band mix |
 | GET | `/dashboard/repeat-support` | Totals for first-time vs repeat applicants and never / within 1 year / over 1 year helped |
 | GET | `/dashboard/cycles` | Per cycle: applications, households, repeat applications, awarded vs budget |

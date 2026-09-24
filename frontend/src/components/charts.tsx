@@ -189,13 +189,13 @@ export function Donut({ parts, size = 170, center, sub }: { parts: { label: stri
 
 /** Rows x columns of counts, shaded by size. */
 export function Heatmap({ rows, cols, value, colLabel = (c) => c, total }: {
-  rows: string[]; cols: string[]; value: (r: string, c: string) => number; colLabel?: (c: string) => string; total?: (r: string) => ReactNode;
+  rows: string[]; cols: string[]; value: (r: string, c: string) => number; colLabel?: (c: string) => ReactNode; total?: (r: string) => ReactNode;
 }) {
   const max = Math.max(1, ...rows.flatMap((r) => cols.map((c) => value(r, c))));
   return (
-    <div role="table" aria-label="Heatmap" style={{ display: "grid", gridTemplateColumns: `110px repeat(${cols.length}, minmax(0,1fr))${total ? " 56px" : ""}`, gap: 4 }}>
+    <div role="table" aria-label="Heatmap" style={{ display: "grid", gridTemplateColumns: `84px repeat(${cols.length}, minmax(0,1fr))${total ? " 52px" : ""}`, gap: 4 }}>
       <span role="columnheader" />
-      {cols.map((c) => <span key={c} role="columnheader" className="small muted" style={{ textAlign: "center", fontWeight: 600 }}>{colLabel(c)}</span>)}
+      {cols.map((c) => <span key={c} role="columnheader" className="small muted" style={{ textAlign: "center", fontWeight: 600, fontSize: 11.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{colLabel(c)}</span>)}
       {total && <span role="columnheader" className="small muted" style={{ textAlign: "right", fontWeight: 600 }}>Total</span>}
       {rows.map((r) => (
         <div key={r} role="row" style={{ display: "contents" }}>

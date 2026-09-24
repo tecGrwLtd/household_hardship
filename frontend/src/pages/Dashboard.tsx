@@ -5,7 +5,7 @@ import type {
 } from "../api/types";
 import { BarList, Columns, Donut, Heatmap, LineChart, Meter, Sparkline, Stacked } from "../components/charts";
 import { Button, Card, ErrorBox, Legend, Loading, PageHeader, Pill } from "../components/ui";
-import { compact, GROUP_COLOR, GROUP_LABEL, monthLabel, monthShort, num, pct, rwf, SUPPORT_GROUPS } from "../lib/format";
+import { compact, GROUP_COLOR, GROUP_LABEL, GROUP_SHORT, monthLabel, monthShort, num, pct, rwf, SUPPORT_GROUPS } from "../lib/format";
 import { useFilterChips, useFilters, usePageFilters, type FilterKey } from "../state/filters";
 
 const KEYS: FilterKey[] = ["month", "support_group", "region", "area_code", "urban_rural"];
@@ -49,14 +49,14 @@ export default function Dashboard() {
         <OutcomesCard rows={outcomes} />
       </div>
 
-      <div className="grid" style={{ gridTemplateColumns: "minmax(0,1.3fr) minmax(0,1fr)" }}>
+      <div className="grid" style={{ gridTemplateColumns: "minmax(0,1.15fr) minmax(0,1fr)" }}>
         <SupportTypes rows={types.data} />
         <Card title="Where each kind of need is" note="applicants by region and support type">
           {!heat ? <Loading lines={5} /> : heat.length === 0 ? <span className="muted">No applications for these filters.</span> : (() => {
             const regions = [...new Set(heat.map((h) => h.region))].sort();
             const groups = SUPPORT_GROUPS.filter((g) => heat.some((h) => h.support_group === g));
             const v = (r: string, g: string) => heat.find((h) => h.region === r && h.support_group === g)?.applicants ?? 0;
-            return <Heatmap rows={regions} cols={groups} value={v} colLabel={(g) => GROUP_LABEL[g]}
+            return <Heatmap rows={regions} cols={groups} value={v} colLabel={(g) => <span title={GROUP_LABEL[g]}>{GROUP_SHORT[g]}</span>}
               total={(r) => num(groups.reduce((a, g) => a + v(r, g), 0))} />;
           })()}
         </Card>
@@ -179,7 +179,7 @@ function SupportTypes({ rows }: { rows?: SupportTypeRow[] }) {
           const helped = r.helped_within_1y + r.helped_over_1y;
           return (
             <div key={r.support_group} className="group-row">
-              <span className="row" style={{ gap: 8, fontWeight: 500 }}><i className="dot" style={{ background: GROUP_COLOR[r.support_group] }} />{GROUP_LABEL[r.support_group]}</span>
+              <span className="row" style={{ gap: 8, fontWeight: 500, whiteSpace: "nowrap" }}><i className="dot" style={{ background: GROUP_COLOR[r.support_group] }} />{GROUP_LABEL[r.support_group]}</span>
               <b style={{ textAlign: "right" }}>{num(r.applicants)}</b>
               <div style={{ width: `${(r.applicants / peak) * 100}%` }}>
                 <Stacked height={20} label={GROUP_LABEL[r.support_group]} parts={[

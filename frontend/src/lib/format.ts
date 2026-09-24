@@ -1,22 +1,33 @@
 // Display helpers. Labels live here so every page words things the same way.
 
-export type SupportGroup = "financial" | "health" | "education" | "bereavement";
+export type SupportGroup = "health" | "food" | "housing_bills" | "education_childcare" | "funeral_other";
 
-export const SUPPORT_GROUPS: SupportGroup[] = ["financial", "health", "education", "bereavement"];
+export const SUPPORT_GROUPS: SupportGroup[] = ["health", "food", "housing_bills", "education_childcare", "funeral_other"];
 
 export const GROUP_LABEL: Record<string, string> = {
-  financial: "Financial",
   health: "Health",
-  education: "Education",
-  bereavement: "Bereavement",
+  food: "Food",
+  housing_bills: "Housing & bills",
+  education_childcare: "Education & childcare",
+  funeral_other: "Funeral & other",
+};
+
+// One word each, for tight spots such as heatmap column headers.
+export const GROUP_SHORT: Record<string, string> = {
+  health: "Health",
+  food: "Food",
+  housing_bills: "Housing",
+  education_childcare: "Education",
+  funeral_other: "Funeral",
 };
 
 // CSS variables, so the colours follow the theme.
 export const GROUP_COLOR: Record<string, string> = {
-  financial: "var(--teal)",
   health: "var(--blue)",
-  education: "var(--amber)",
-  bereavement: "var(--violet)",
+  food: "var(--teal)",
+  housing_bills: "var(--amber)",
+  education_childcare: "var(--violet)",
+  funeral_other: "var(--rose)",
 };
 
 export const NEED_LABEL: Record<string, string> = {
@@ -31,14 +42,14 @@ export const NEED_LABEL: Record<string, string> = {
 };
 
 export const NEED_GROUP: Record<string, SupportGroup> = {
-  rent_arrears: "financial",
+  rent_arrears: "housing_bills",
   medical: "health",
-  utilities: "financial",
-  food: "financial",
-  funeral: "bereavement",
-  childcare: "financial",
-  education: "education",
-  other: "financial",
+  utilities: "housing_bills",
+  food: "food",
+  funeral: "funeral_other",
+  childcare: "education_childcare",
+  education: "education_childcare",
+  other: "funeral_other",
 };
 
 export type Tone = "neutral" | "teal" | "amber" | "blue" | "danger";

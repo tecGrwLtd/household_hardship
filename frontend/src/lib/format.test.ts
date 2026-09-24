@@ -18,7 +18,8 @@ describe("format", () => {
   });
   it("puts every need category in a support group", () => {
     expect(Object.keys(NEED_LABEL).every((k) => NEED_GROUP[k])).toBe(true);
-    expect(NEED_GROUP.funeral).toBe("bereavement");
+    expect(NEED_GROUP.funeral).toBe("funeral_other");
+    expect(NEED_GROUP.childcare).toBe("education_childcare");
   });
   it("handles edge cases", () => {
     expect(pct(1, 0)).toBe("—");

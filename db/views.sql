@@ -2,8 +2,8 @@
 -- Dashboard-facing views
 --
 -- These map directly onto what was asked for in the kickoff call: a monthly
--- applicant count broken down by support type (education / health /
--- financial / bereavement), and a repeat-support breakdown (helped before?
+-- applicant count broken down by support type (health / food / housing &
+-- bills / education & childcare / funeral & other), and a repeat-support breakdown (helped before?
 -- came back within one year or after more than one?).
 -- The frontend dev can query these directly instead of re-deriving the
 -- logic in the dashboard layer.
@@ -16,21 +16,24 @@ BEGIN;
 DROP VIEW IF EXISTS v_application_facts, v_repeat_forecast, v_repeat_outcomes, v_monthly_support,
                      v_monthly_applications, v_repeat_support, v_cycle_summary;
 
--- The client talks about education / health / financial support; the schema
--- records the finer need_category. One place defines the grouping so every
--- view (and the API) agrees. Bereavement is kept apart from financial
--- because the client called out "loss / grieving" separately.
+-- The dashboard groups the finer need_category into five support types of
+-- similar size (agreed 24 Sep 2026, replacing education / health /
+-- financial / bereavement, where "financial" held 59% of applications).
+-- One place defines the grouping so every view (and the API) agrees.
 CREATE OR REPLACE FUNCTION support_group(nc need_category_enum) RETURNS text
 LANGUAGE sql IMMUTABLE AS $$
     SELECT CASE nc
-        WHEN 'education' THEN 'education'
-        WHEN 'medical'   THEN 'health'
-        WHEN 'funeral'   THEN 'bereavement'
-        ELSE 'financial'   -- rent_arrears, utilities, food, childcare, other
+        WHEN 'medical'      THEN 'health'
+        WHEN 'food'         THEN 'food'
+        WHEN 'rent_arrears' THEN 'housing_bills'
+        WHEN 'utilities'    THEN 'housing_bills'
+        WHEN 'education'    THEN 'education_childcare'
+        WHEN 'childcare'    THEN 'education_childcare'
+        ELSE 'funeral_other'   -- funeral, other
     END
 $$;
 COMMENT ON FUNCTION support_group(need_category_enum) IS
-    'Dashboard grouping of need_category: education, health, financial, bereavement.';
+    'Dashboard grouping of need_category: health, food, housing_bills, education_childcare, funeral_other.';
 
 -- One row per month x need_category, with a running band breakdown from the
 -- latest model score per application.
@@ -118,7 +121,7 @@ GROUP BY 1, 2
 ORDER BY 1, 2;
 
 COMMENT ON VIEW v_monthly_support IS
-    'Monthly applicants per support group (education/health/financial/bereavement), '
+    'Monthly applicants per support group (health/food/housing_bills/education_childcare/funeral_other), '
     'repeat beneficiaries within/over one year, and awards.';
 
 -- Single-row-per-cycle rollup for a cycle summary card.

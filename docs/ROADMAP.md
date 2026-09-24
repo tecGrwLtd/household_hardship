@@ -16,7 +16,7 @@ complicated, all I want to show is that it works".
 | Topic | Decision |
 |---|---|
 | Backend stack | FastAPI + SQLAlchemy + PostgreSQL (Python, same as the ML code) |
-| Dashboard grouping | education → **Education**; medical → **Health**; rent_arrears, utilities, food, childcare, other → **Financial**; funeral → **Bereavement** |
+| Dashboard grouping | medical → **Health**; food → **Food**; rent_arrears, utilities → **Housing & bills**; education, childcare → **Education & childcare**; funeral, other → **Funeral & other** (24 Sep; replaced education / health / financial / bereavement, where financial held 59% of applications) |
 | Repeat-support prediction model | Phase 3. v1 dashboard uses the historical repeat breakdown (`v_repeat_support`) |
 | Auth | Single demo admin until the frontend exists; then two roles, admin and caseworker, with different menus and views (24 Sep) |
 | Frontend | React + TypeScript (Vite); English only; desktop; light and dark themes; global filters in the sidebar (24 Sep) |
