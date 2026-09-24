@@ -112,11 +112,27 @@ starts with `rules-v0` — the transparent rule-based placeholder — active.
 
 | Column | Notes |
 |---|---|
-| `kind` | `lgbm_quantile` (trained) or `rules` (placeholder) |
+| `kind` | `lgbm_quantile` (trained need model), `rules` (placeholder), `repeat_lgbm` / `repeat_history` (repeat forecaster) |
+| `purpose` | `need` (drives allocation) or `repeat` (planning forecast only). One active version per purpose |
 | `status` | `candidate / active / retired` |
 | `artifact_path` | `models/<version>/` relative to the project root; NULL for `rules` |
 | `data_hash` | sha256 of the exact training matrix — reproducibility |
 | `metrics` | The full evaluation report the version was judged on, including `gates.passed` |
+
+## `repeat_forecasts`
+
+Probability that the household applies again within 365 days
+(`p_return_1y`), per application, from the active repeat model. Written by
+`python -m backend.ml forecast` and refreshed by the API when an application
+is allocated or reviewed. **Planning only — never read by allocation.**
+Latest row per application wins; `v_repeat_forecast` aggregates it.
+
+## `drift_reports`
+
+One row per monthly drift check of a need-model version
+(`python -m backend.ml drift`): window, number of applications, `status`
+(`ok / watch / alert`) and the full `report` (PSI per input and of the
+score, SHAP stability, mean need by group, coverage on new outcomes).
 
 ## `model_scores`
 
@@ -161,5 +177,5 @@ trends only. Groups with fewer than 20 bottom-decile applicants are omitted
 
 ## Dashboard views — see `db/views.sql`
 
-`v_monthly_support`, `v_monthly_applications`, `v_repeat_support`, `v_cycle_summary` (and the `support_group()` function) — described
+`v_monthly_support`, `v_monthly_applications`, `v_repeat_support`, `v_cycle_summary`, `v_repeat_outcomes`, `v_repeat_forecast` (and the `support_group()` function) — described
 in the top-level README.

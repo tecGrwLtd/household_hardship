@@ -24,6 +24,7 @@ db/
   erd.mmd             Entity-relationship diagram (Mermaid)
   seed/*.csv          The synthetic dataset, one CSV per table
   load_data.py        Loads schema.sql + views.sql + seed/*.csv into any Postgres instance
+  migrations/         Changes for databases created before a schema update (see below)
 data/
   generate_synthetic_data.py   Regenerate the synthetic dataset
 models/               Trained model artifacts (git-ignored; built by `train`)
@@ -75,6 +76,17 @@ pytest                                               # API tests create and drop
 
 Without Docker, point `load_data.py` at any Postgres 14+ database and drop
 `--skip-schema` — it will create everything itself.
+
+### Updating an existing database
+
+`schema.sql` builds a fresh database. A database created before a schema
+change needs the matching file in `db/migrations/` (each is safe to re-run),
+then `views.sql` re-applied:
+
+```bash
+docker compose exec -T db psql -U hardship_app -d hardship_platform < db/migrations/001_phase3_repeat_and_drift.sql
+docker compose exec -T db psql -U hardship_app -d hardship_platform < db/views.sql
+```
 
 ## What's already verified
 

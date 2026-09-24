@@ -14,7 +14,14 @@ python -m backend.ml train               # evaluate + fit + save models/<version
 python -m backend.ml activate <version>  # make it live (refused if its gates failed, unless --force)
 python -m backend.ml score               # score + allocate with the live model, write model_scores
 python -m backend.ml models              # list registered versions
+
+python -m backend.ml train-repeat        # repeat-support forecaster (planning only); then activate it
+python -m backend.ml forecast            # write repeat forecasts for every application
+python -m backend.ml drift               # monthly drift report for the active need model
 ```
+
+Run `drift` monthly (the design spec's schedule), e.g. from cron on the
+server: `0 6 1 * * cd /srv/hardship-platform && docker compose run --rm api python -m backend.ml drift`.
 
 Database: `--dsn`, else `$HARDSHIP_DSN`, else the local docker-compose
 database. Tests: `pytest` (no database needed).
@@ -50,6 +57,8 @@ them with `train`.
 | `evaluate.py` | Side-by-side out-of-fold evaluation of all candidates, activation gates |
 | `audit.py` | Disaggregated fairness audit across the spec's nine dimensions |
 | `registry.py` | Model artifacts on disk |
+| `repeat.py` | Repeat-support forecast (planning only): labels, two candidates, calibration, evaluation |
+| `drift.py` | Reference profile stored at training; monthly PSI / SHAP-stability / coverage report |
 | `db.py` | Postgres reads/writes, model registry |
 | `__main__.py` | The CLI above |
 
@@ -157,6 +166,61 @@ this pushes the `defer` band above the design spec's "expect 35–55%"
 planning range. That's a property of the demo data, not the allocation
 logic.
 
+## Repeat-support forecast (`repeat.py`)
+
+The kickoff call asked how many beneficiaries will need help again, within a
+year or later. `train-repeat` predicts, per application, the probability
+that the household applies again within 365 days.
+
+- **Planning only.** It feeds `v_repeat_forecast` and the dashboard, never
+  allocation: ranking people down for being likely to need help again would
+  punish the households the programme exists for. That is also why it may
+  use `was_helped` (was the application funded), which the need model never
+  sees. It has its own registry purpose (`repeat`), so activating it never
+  touches the need model.
+- **Labels need a full year of follow-up**: only applications at least a
+  year older than the latest one are trained and evaluated on.
+- **Two candidates, chosen by evaluation**: a regularised LightGBM on all
+  features, and a logistic regression on four history numbers (prior
+  applications, first application or not, years since the last one, funded
+  or not). Isotonic calibration is kept only where it lowers the held-out
+  Brier score — on the history model it made things worse (0.146 → 0.158).
+
+| On the synthetic data (2,309 labelled, 78% returned) | Brier | PR-AUC | Calibration error |
+|---|---|---|---|
+| History logistic (chosen) | **0.146** | 0.857 | 0.015 |
+| LightGBM | 0.147 | 0.894 | 0.019 |
+| Base rate | 0.172 | – | – |
+
+Check against reality: for August 2025 applicants the forecast expected
+~202 of 251 households back within a year; 210 came back.
+
+## Drift (`drift.py`)
+
+`train` stores a reference profile in the version's `metadata.json`: the
+distribution of each model input and of the score over the applicant
+population, and mean |SHAP| per feature. `drift` compares a window of
+recent applications (default: the last 30 days) against it and writes a
+`drift_reports` row:
+
+| Check | Watch | Alert |
+|---|---|---|
+| PSI per input | > 0.1 | > 0.2 |
+| PSI of the score | > 0.1 | > 0.2 |
+| Top-10 SHAP drivers still top-10 | < 90% | < 70% |
+| Interval coverage on outcomes recorded after training | – | outside 72–88% |
+
+Mean need by subgroup is reported too (aggregate, groups under 20
+suppressed). Coverage counts only applications submitted after the model
+was trained — earlier outcomes were in its training set.
+
+On the synthetic data the check already flags a real, expected shift:
+`prior_applications_count` and `days_since_last_application` (PSI 0.24–0.30)
+— as the programme ages, more applicants have a history. Scores and drivers
+are stable (score PSI 0.04, 90% of top drivers unchanged). This is the kind
+of population shift the spec says to watch; retrain when it starts moving
+the score.
+
 ## What's NOT implemented from the spec (left for later phases)
 
 - `selection_weights()` (covariate-shift correction for selective labels) is
@@ -166,4 +230,3 @@ logic.
   approval rates) — the synthetic data varies caseworker strictness on
   purpose, but no code does it yet.
 - Separate urban/rural models vs one pooled model.
-- Monthly drift checks (PSI per feature, SHAP stability) — Phase 3.

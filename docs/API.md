@@ -90,18 +90,23 @@ POST /applications ──► submitted ──(POST /cycles/{id}/allocate)──�
 | GET | `/dashboard/cycles` | Per cycle: applications, households, repeat applications, awarded vs budget |
 | GET | `/dashboard/fairness` | Exclusion error among the worst-off, by group, for the active model (groups under 20 suppressed) |
 | GET | `/dashboard/model-health` | Active model and its evaluation gates, band mix, reviewer override rate (flagged if under 5%) |
+| GET | `/dashboard/repeat-forecast` | "How many will need help again within a year?" — per month and support group: applicants, expected returns (sum of forecasts), and for months over a year old, actual returns. Planning only |
+| GET | `/dashboard/override-trend` | Per month: reviews, override rate, approval rate |
+| GET | `/dashboard/drift` | Latest monthly drift report for the active need model (status ok / watch / alert, shifted inputs, score shift, driver stability) and recent report statuses |
 
 ### Model management
 
 | Method | Path | Notes |
 |---|---|---|
 | GET | `/models` | All versions with status and whether their gates passed |
-| GET | `/models/active` | |
+| GET | `/models/active` | `?purpose=need` (default, allocation) or `repeat` (planning forecast) — one active model per purpose |
 | GET | `/models/{version}` | Full evaluation report |
-| POST | `/models/{version}/activate` | `{force?, reason?}` — refused (409) if the version's gates failed, unless forced with a reason, which is recorded |
+| POST | `/models/{version}/activate` | `{force?, reason?}` — replaces the active model of the same purpose only. Refused (409) if the version's gates failed, unless forced with a reason, which is recorded |
 
-Training is not an API call: `python -m backend.ml train` (see
-`backend/ml/README.md`) takes a while and needs the whole dataset.
+Training, forecasting and drift reports are not API calls: `python -m
+backend.ml train | train-repeat | forecast | drift` (see
+`backend/ml/README.md`). Allocation and review decisions refresh the repeat
+forecasts of the applications they touch automatically.
 
 ## Errors
 
