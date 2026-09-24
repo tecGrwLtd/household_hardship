@@ -185,3 +185,58 @@ def feature_matrix(df: pd.DataFrame, target: str | None = None):
 
     y = df[target] if target else None
     return x, y
+
+
+def _is_boolean(s: pd.Series) -> bool:
+    values = s.dropna().unique()
+    return len(values) > 0 and all(isinstance(v, (bool, np.bool_)) for v in values)
+
+
+class ModelInputs:
+    """The exact matrix a model sees, fixed at fit time and stored with it:
+    feature_matrix() columns, booleans as 0/1, the fitted asset index, and
+    each categorical feature's training levels.
+
+    transform() forces that layout on anything scored later — same columns,
+    same order, same category levels, everything else numeric. Data entered
+    through the API can leave a field empty for a whole batch, which would
+    otherwise arrive untyped and change which columns LightGBM treats as
+    categorical (it then refuses the batch)."""
+
+    def __init__(self, feature_names: list[str] | None = None, categories: dict | None = None,
+                 asset_index: dict | None = None):
+        self.feature_names = feature_names or []
+        self.categories: dict[str, list[str]] = categories or {}
+        self.asset_index = AssetIndex(**asset_index) if asset_index else AssetIndex()
+
+    def fit(self, features: pd.DataFrame) -> "ModelInputs":
+        self.asset_index = AssetIndex().fit(features)
+        X = self._matrix(features)
+        self.feature_names = list(X.columns)
+        self.categories = {c: [str(v) for v in X[c].cat.categories]
+                           for c in X.columns if isinstance(X[c].dtype, pd.CategoricalDtype)}
+        return self
+
+    def transform(self, features: pd.DataFrame) -> pd.DataFrame:
+        X = self._matrix(features).reindex(columns=self.feature_names)
+        for c in self.feature_names:
+            if c in self.categories:
+                values = X[c].astype(object).where(X[c].notna(), None)
+                X[c] = pd.Categorical(values.map(lambda v: None if v is None else str(v)),
+                                      categories=self.categories[c])
+            elif not pd.api.types.is_numeric_dtype(X[c]):
+                X[c] = pd.to_numeric(X[c].astype(object), errors="coerce").astype(float)
+        return X
+
+    def _matrix(self, features: pd.DataFrame) -> pd.DataFrame:
+        X, _ = feature_matrix(features)
+        for c in X.columns:   # booleans as 0/1: constrainable, and no category remapping
+            if isinstance(X[c].dtype, pd.CategoricalDtype) and _is_boolean(X[c]):
+                X[c] = X[c].astype(object).astype(float)
+        X["asset_index"] = self.asset_index.transform(features)
+        return X
+
+    def to_dict(self) -> dict:
+        # Same keys older artifacts used, so they still load.
+        return {"feature_names": self.feature_names, "categories": self.categories,
+                "asset_index": self.asset_index.to_dict()}

@@ -26,7 +26,7 @@ import pandas as pd
 import lightgbm as lgb
 from sklearn.model_selection import GroupKFold
 
-from .features import AssetIndex, feature_matrix
+from .features import ModelInputs
 
 INTERVAL = (0.10, 0.90)      # 80% prediction interval
 RANDOM_AUDIT_RATE = 0.04     # below-cutoff applicants approved at random, per cycle
@@ -106,19 +106,16 @@ class LGBMNeedModel:
     def __init__(self, params: dict | None = None):
         self.params = {**LGBM_PARAMS, **(params or {})}
         self.boosters: dict[str, lgb.Booster] = {}
-        self.feature_names: list[str] = []
-        self.asset_index = AssetIndex()
-        self.categories: dict[str, list[str]] = {}   # categorical feature -> training levels
+        self.inputs = ModelInputs()
         self.conformal = 0.0
 
+    @property
+    def feature_names(self) -> list[str]:
+        return self.inputs.feature_names
+
     def fit(self, features: pd.DataFrame, y) -> "LGBMNeedModel":
-        self.asset_index = AssetIndex().fit(features)
-        X = self._matrix(features)
+        X = self.inputs.fit(features).transform(features)
         y = np.asarray(y, dtype=float)
-        self.feature_names = list(X.columns)
-        self.categories = {c: [str(v) for v in X[c].cat.categories]
-                           for c in X.columns if isinstance(X[c].dtype, pd.CategoricalDtype)}
-        X = self._conform(X)
         w = welfare_weights(y)
         for name, alpha in QUANTILES.items():
             if name == "mid":
@@ -137,31 +134,7 @@ class LGBMNeedModel:
         return [direction(c) for c in self.feature_names]
 
     def _X(self, features: pd.DataFrame) -> pd.DataFrame:
-        return self._conform(self._matrix(features))
-
-    def _matrix(self, features: pd.DataFrame) -> pd.DataFrame:
-        X, _ = feature_matrix(features)
-        for c in X.columns:   # booleans as 0/1: constrainable, and no category remapping
-            if isinstance(X[c].dtype, pd.CategoricalDtype) and _is_boolean(X[c]):
-                X[c] = X[c].astype(object).astype(float)
-        X["asset_index"] = self.asset_index.transform(features)
-        return X
-
-    def _conform(self, X: pd.DataFrame) -> pd.DataFrame:
-        """Force the training-time layout: same columns in the same order,
-        categoricals with exactly their training levels, everything else
-        numeric. Data entered through the API can leave a field empty for a
-        whole batch, which would otherwise arrive untyped and change which
-        columns LightGBM sees as categorical."""
-        X = X.reindex(columns=self.feature_names)
-        for c in self.feature_names:
-            if c in self.categories:
-                values = X[c].astype(object).where(X[c].notna(), None)
-                X[c] = pd.Categorical(values.map(lambda v: None if v is None else str(v)),
-                                      categories=self.categories[c])
-            elif not pd.api.types.is_numeric_dtype(X[c]):
-                X[c] = pd.to_numeric(X[c].astype(object), errors="coerce").astype(float)
-        return X
+        return self.inputs.transform(features)
 
     def predict(self, features: pd.DataFrame) -> pd.DataFrame:
         X = self._X(features)
@@ -182,25 +155,17 @@ class LGBMNeedModel:
         directory.mkdir(parents=True, exist_ok=True)
         for name, booster in self.boosters.items():
             booster.save_model(str(directory / f"{name}.txt"))
-        return {"kind": self.kind, "params": self.params,
-                "feature_names": self.feature_names, "categories": self.categories, "conformal": self.conformal,
+        return {"kind": self.kind, "params": self.params, "conformal": self.conformal,
                 "monotone_constraints": {c: d for c, d in zip(self.feature_names, self.constraints()) if d},
-                "asset_index": self.asset_index.to_dict()}
+                **self.inputs.to_dict()}
 
     @classmethod
     def load(cls, directory: Path, metadata: dict) -> "LGBMNeedModel":
         m = cls(params=metadata.get("params"))
         m.boosters = {name: lgb.Booster(model_file=str(directory / f"{name}.txt")) for name in QUANTILES}
-        m.feature_names = metadata["feature_names"]
-        m.asset_index = AssetIndex(**metadata["asset_index"])
-        m.categories = metadata["categories"]
+        m.inputs = ModelInputs(metadata["feature_names"], metadata["categories"], metadata["asset_index"])
         m.conformal = float(metadata.get("conformal", 0.0))
         return m
-
-
-def _is_boolean(s: pd.Series) -> bool:
-    values = s.dropna().unique()
-    return len(values) > 0 and all(isinstance(v, (bool, np.bool_)) for v in values)
 
 
 def _top_contributions(contrib: np.ndarray, names: list[str], top_n: int) -> list[list[tuple[str, float]]]:
