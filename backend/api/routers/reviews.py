@@ -4,11 +4,13 @@ person's decision finalises it (GDPR Art. 22 / EU AI Act Art. 14; design
 spec: the automated path never issues a final refusal)."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
+from ..auth import User, current_user
 from ..database import get_conn
+from ..filters import Filters, filters
 from ..schemas import ReviewCreate
 from ..scoring import create_award, cycle_budget, lock_cycle, refresh_repeat_forecasts
 
@@ -20,23 +22,54 @@ LATEST_SCORE = """LEFT JOIN LATERAL (SELECT * FROM model_scores ms WHERE ms.appl
 
 
 @router.get("/queue")
-def review_queue(cycle_id: int | None = None, conn: Connection = Depends(get_conn)):
-    """Cases waiting for a human, neediest first, each with the model's lean
-    and the top drivers of its score. `model_lean` is what the score alone
-    would suggest; the reviewer has full authority to decide otherwise."""
-    return conn.execute(text(f"""
-        SELECT a.application_id, a.household_id, a.cycle_id, a.status, a.need_category,
-               support_group(a.need_category) AS support_group, a.amount_requested, a.caseworker_id,
+def review_queue(f: Filters = Depends(filters), mine: bool | None = Query(None, description="Default: yes for caseworkers, no for admins"),
+                 kind: str | None = Query(None, pattern="^(review|appeal)$"), cycle_id: int | None = None,
+                 limit: int = Query(100, le=500), user: User = Depends(current_user), conn: Connection = Depends(get_conn)):
+    """Cases waiting for a person, neediest first, each with the model's lean,
+    the top drivers of its score, and flags a reviewer should see (deferred
+    repeatedly in the last year, never helped). `model_lean` is what the
+    score alone suggests; the reviewer has full authority to decide
+    otherwise. The global filters apply except the month: a worklist must
+    not hide an older appeal. `counts` are for the tabs."""
+    mine = (not user.is_admin) if mine is None else mine
+    where, params = f.where(month=False)
+    base = f"f.status IN ('in_review', 'appealed') AND {where}"
+    if cycle_id is not None:
+        base += " AND f.cycle_id = :cycle"
+        params["cycle"] = cycle_id
+    params["me"] = user.caseworker_id
+    counts = conn.execute(text(f"""
+        SELECT count(*) AS all, count(*) FILTER (WHERE f.caseworker_id = :me) AS mine,
+               count(*) FILTER (WHERE f.status = 'in_review') AS review, count(*) FILTER (WHERE f.status = 'appealed') AS appeal
+        FROM v_application_facts f WHERE {base}"""), params).mappings().one()
+    sel = base + (" AND f.caseworker_id = :me" if mine else "") + (
+        {"review": " AND f.status = 'in_review'", "appeal": " AND f.status = 'appealed'"}.get(kind, ""))
+    items = conn.execute(text(f"""
+        SELECT f.application_id, f.household_id, f.cycle_id, f.status, f.need_category, f.support_group,
+               f.amount_requested, f.caseworker_id, c.display_name AS caseworker, f.submitted_at,
+               f.area_name, f.region, f.helped_bucket,
                s.band, s.need_lo, s.need_mid, s.need_hi, s.cutoff, s.top_shap_features, s.model_version,
-               CASE WHEN s.cutoff IS NULL OR s.need_mid >= s.cutoff THEN 'approve' ELSE 'deny' END AS model_lean
-        FROM applications a {LATEST_SCORE}
-        WHERE a.status::text IN ('in_review', 'appealed')
-          AND (CAST(:cycle AS int) IS NULL OR a.cycle_id = :cycle)
-        ORDER BY s.need_mid DESC NULLS LAST"""), {"cycle": cycle_id}).mappings().all()
+               CASE WHEN s.cutoff IS NULL OR s.need_mid >= s.cutoff THEN 'approve' ELSE 'deny' END AS model_lean,
+               (SELECT count(*) FROM applications p WHERE p.household_id = f.household_id
+                   AND p.status = 'deferred' AND p.application_id <> f.application_id
+                   AND p.submitted_at > f.submitted_at - interval '365 days') AS deferred_last_year
+        FROM v_application_facts f
+        LEFT JOIN caseworkers c ON c.caseworker_id = f.caseworker_id
+        LEFT JOIN LATERAL (SELECT * FROM model_scores ms WHERE ms.application_id = f.application_id
+                           ORDER BY scored_at DESC, score_id DESC LIMIT 1) s ON true
+        WHERE {sel}
+        ORDER BY s.need_mid DESC NULLS LAST, f.submitted_at LIMIT :limit"""), {**params, "limit": limit}).mappings().all()
+    return {"counts": counts, "mine": mine, "items": items}
 
 
 @router.post("/{application_id}")
-def decide(application_id: int, body: ReviewCreate, conn: Connection = Depends(get_conn)):
+def decide(application_id: int, body: ReviewCreate, user: User = Depends(current_user),
+           conn: Connection = Depends(get_conn)):
+    """Approve or deny a case in the queue. A reason is required and kept with
+    the decision. A caseworker's decision is always attributed to them; an
+    admin may record it for another caseworker."""
+    if not (body.notes or "").strip():
+        raise HTTPException(422, "A reason is required: it is kept with the decision")
     app = conn.execute(text(f"""SELECT a.*, s.band, s.need_mid, s.cutoff FROM applications a {LATEST_SCORE}
                                 WHERE a.application_id = :a FOR UPDATE OF a"""),
                        {"a": application_id}).mappings().first()
@@ -47,7 +80,7 @@ def decide(application_id: int, body: ReviewCreate, conn: Connection = Depends(g
     if app["band"] is None:
         raise HTTPException(409, "Application has no model score; allocate its cycle first")
 
-    caseworker_id = body.caseworker_id or app["caseworker_id"]
+    caseworker_id = (body.caseworker_id or app["caseworker_id"]) if user.is_admin else user.caseworker_id
     if caseworker_id is None:
         raise HTTPException(422, "caseworker_id is required: this application has no assigned caseworker")
 

@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import insert, text
 from sqlalchemy.engine import Connection
 
+from ..auth import require_admin
 from ..database import get_conn, get_database
 from ..schemas import CycleCreate
 from ..scoring import cycle_budget
@@ -37,7 +38,7 @@ def list_cycles(conn: Connection = Depends(get_conn)):
     return conn.execute(text("SELECT * FROM v_cycle_summary ORDER BY period_start DESC")).mappings().all()
 
 
-@router.post("/cycles", status_code=201)
+@router.post("/cycles", status_code=201, dependencies=[Depends(require_admin)])
 def create_cycle(body: CycleCreate, conn: Connection = Depends(get_conn)):
     if body.period_end <= body.period_start:
         raise HTTPException(422, "period_end must be after period_start")

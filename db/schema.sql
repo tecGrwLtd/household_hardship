@@ -110,6 +110,25 @@ COMMENT ON TABLE caseworkers IS
     'Retained for contraction evaluation and override-rate monitoring. '
     'caseworker_id must NEVER be used as a model feature.';
 
+-- Platform accounts. Two roles: 'admin' (programme manager: everything,
+-- including cycles, allocation and models) and 'caseworker' (data entry,
+-- their own review queue). A caseworker account is tied to its caseworkers
+-- row so reviews and applications are attributed to the right person.
+-- Passwords are bcrypt hashes made by pgcrypto's crypt(); they are checked
+-- in the database and never leave it.
+CREATE TYPE user_role_enum AS ENUM ('admin', 'caseworker');
+CREATE TABLE app_users (
+    user_id         SERIAL PRIMARY KEY,
+    username        VARCHAR(50) NOT NULL UNIQUE,
+    display_name    TEXT NOT NULL,
+    password_hash   TEXT NOT NULL,
+    role            user_role_enum NOT NULL,
+    caseworker_id   INTEGER REFERENCES caseworkers(caseworker_id),
+    active          BOOLEAN NOT NULL DEFAULT true,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT caseworker_account_linked CHECK (role <> 'caseworker' OR caseworker_id IS NOT NULL)
+);
+
 -- ----------------------------------------------------------------------------
 -- HOUSEHOLDS
 -- ----------------------------------------------------------------------------

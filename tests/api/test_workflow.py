@@ -110,7 +110,7 @@ def test_review_approve_deny_appeal_close(client, auth, sql):
     # Force both into review so the path is deterministic regardless of the model's bands.
     sql("UPDATE applications SET status = 'in_review' WHERE application_id = ANY(%s)", (ids,))
 
-    queue = client.get("/reviews/queue", headers=auth, params={"cycle_id": cycle_id}).json()
+    queue = client.get("/reviews/queue", headers=auth, params={"cycle_id": cycle_id}).json()["items"]
     assert {q["application_id"] for q in queue} == set(ids)
     assert all(q["model_lean"] in ("approve", "deny") for q in queue)
 
@@ -118,13 +118,13 @@ def test_review_approve_deny_appeal_close(client, auth, sql):
     assert approved["status"] == "awarded"
     assert client.get(f"/applications/{ids[0]}", headers=auth).json()["award"] is not None
 
-    denied = client.post(f"/reviews/{ids[1]}", headers=auth, json={"decision": "deny"}).json()
+    denied = client.post(f"/reviews/{ids[1]}", headers=auth, json={"decision": "deny", "notes": "not enough"}).json()
     assert denied["status"] == "deferred" and denied["review"]["final_decision"] == "denied"
-    assert client.post(f"/reviews/{ids[1]}", headers=auth, json={"decision": "deny"}).status_code == 409
+    assert client.post(f"/reviews/{ids[1]}", headers=auth, json={"decision": "deny", "notes": "again"}).status_code == 409
 
     assert client.post(f"/applications/{ids[1]}/appeal", headers=auth).json()["status"] == "appealed"
     assert client.post(f"/applications/{ids[0]}/appeal", headers=auth).status_code == 409   # awarded
-    closed = client.post(f"/reviews/{ids[1]}", headers=auth, json={"decision": "deny"}).json()
+    closed = client.post(f"/reviews/{ids[1]}", headers=auth, json={"decision": "deny", "notes": "appeal heard"}).json()
     assert closed["status"] == "closed" and closed["review"]["final_decision"] == "appeal_denied"
 
 
@@ -133,7 +133,7 @@ def test_approval_cannot_overspend_the_cycle(client, auth, sql):
     app_id = submit(client, auth, new_household(client, auth, income=5_000), cycle_id, start, amount=50_000)["application_id"]
     client.post(f"/cycles/{cycle_id}/allocate", headers=auth)
     sql("UPDATE applications SET status = 'in_review' WHERE application_id = %s", (app_id,))
-    r = client.post(f"/reviews/{app_id}", headers=auth, json={"decision": "approve"})
+    r = client.post(f"/reviews/{app_id}", headers=auth, json={"decision": "approve", "notes": "urgent"})
     assert r.status_code == 409 and "exceed the cycle budget" in r.text
 
 

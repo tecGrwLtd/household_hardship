@@ -9,10 +9,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
+from ..auth import require_admin
 from ..database import get_conn
 from ..schemas import ActivateRequest
 
-router = APIRouter(prefix="/models", tags=["models"])
+router = APIRouter(prefix="/models", tags=["models"], dependencies=[Depends(require_admin)])
 
 SUMMARY = """model_version, purpose, kind, status, artifact_path, trained_at, activated_at, training_rows, notes,
              (metrics->'gates'->>'passed')::boolean AS gates_passed"""

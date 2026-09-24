@@ -13,8 +13,8 @@
 
 BEGIN;
 
-DROP VIEW IF EXISTS v_repeat_forecast, v_repeat_outcomes, v_monthly_support, v_monthly_applications,
-                     v_repeat_support, v_cycle_summary;
+DROP VIEW IF EXISTS v_application_facts, v_repeat_forecast, v_repeat_outcomes, v_monthly_support,
+                     v_monthly_applications, v_repeat_support, v_cycle_summary;
 
 -- The client talks about education / health / financial support; the schema
 -- records the finer need_category. One place defines the grouping so every
@@ -132,7 +132,9 @@ SELECT
     count(DISTINCT a.application_id) AS total_applications,
     count(DISTINCT a.household_id) AS total_households,
     count(DISTINCT a.application_id) FILTER (WHERE a.prior_applications_count > 0) AS repeat_applications,
-    coalesce(sum(aw.award_amount), 0) AS total_awarded
+    coalesce(sum(aw.award_amount), 0) AS total_awarded,
+    coalesce(sum(a.amount_requested), 0) AS total_requested,
+    count(DISTINCT a.application_id) FILTER (WHERE a.status = 'submitted') AS waiting_applications
 FROM funding_cycles fc
 LEFT JOIN applications a ON a.cycle_id = fc.cycle_id
 LEFT JOIN awards aw ON aw.application_id = a.application_id
@@ -179,5 +181,47 @@ ORDER BY 1, 2;
 
 COMMENT ON VIEW v_repeat_forecast IS
     'Expected vs actual returns within a year, per month and support group (planning only).';
+
+-- One row per application with everything the dashboard filters and counts
+-- by: when, where (district, region, urban/rural), which support group,
+-- what happened (status, award), repeat history, and the latest repeat
+-- forecast. The API's global filters (month, support type, region,
+-- district, area, "mine") are plain WHERE clauses on this view, so every
+-- dashboard number is computed the same way.
+CREATE VIEW v_application_facts AS
+SELECT
+    a.application_id,
+    a.household_id,
+    a.cycle_id,
+    a.caseworker_id,
+    a.submitted_at,
+    date_trunc('month', a.submitted_at)::date AS month,
+    a.need_category,
+    support_group(a.need_category) AS support_group,
+    a.status::text AS status,
+    a.amount_requested,
+    h.area_code,
+    ar.area_name,
+    ar.region,
+    ar.urban_rural::text AS urban_rural,
+    aw.award_amount,
+    (aw.award_id IS NOT NULL) AS awarded,
+    r.is_repeat_applicant,
+    r.repeat_bucket,
+    r.helped_bucket,
+    f.p_return_1y
+FROM applications a
+JOIN households h ON h.household_id = a.household_id
+JOIN area_reference ar ON ar.area_code = h.area_code
+JOIN v_repeat_support r ON r.application_id = a.application_id
+LEFT JOIN awards aw ON aw.application_id = a.application_id
+LEFT JOIN LATERAL (
+    SELECT rf.p_return_1y FROM repeat_forecasts rf
+    WHERE rf.application_id = a.application_id
+    ORDER BY rf.forecast_at DESC, rf.forecast_id DESC LIMIT 1
+) f ON true;
+
+COMMENT ON VIEW v_application_facts IS
+    'Application-level facts behind every filtered dashboard figure.';
 
 COMMIT;

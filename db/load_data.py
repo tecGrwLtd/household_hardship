@@ -76,6 +76,14 @@ def load(dsn: str, skip_schema: bool = False, log=print) -> None:
             cur.execute(f"SELECT count(*) FROM {table}")
             log(f"  loaded {table}: {cur.fetchone()[0]} rows")
 
+        # Demo caseworker account for the synthetic data (J. Uwase, caseworker 1).
+        # Development only; the API creates the admin account itself.
+        cur.execute("""INSERT INTO app_users (username, display_name, password_hash, role, caseworker_id)
+                       SELECT 'uwase', display_name, crypt('caseworker-dev-only', gen_salt('bf', 10)), 'caseworker', caseworker_id
+                       FROM caseworkers WHERE caseworker_id = 1
+                       ON CONFLICT (username) DO NOTHING""")
+        log("  demo caseworker account: uwase / caseworker-dev-only")
+
         for table, (seq_name, pk_col) in SEQUENCES.items():
             cur.execute(f"SELECT setval('{seq_name}', COALESCE((SELECT MAX({pk_col}) FROM {table}), 1))")
         conn.commit()

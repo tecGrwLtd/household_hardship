@@ -4,10 +4,11 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 from sqlalchemy.engine import Connection
 
+from ..auth import require_admin
 from ..database import get_conn
 from ..scoring import commit_allocation, lock_cycle, plan_allocation, plan_to_json
 
-router = APIRouter(prefix="/cycles", tags=["allocation"])
+router = APIRouter(prefix="/cycles", tags=["allocation"], dependencies=[Depends(require_admin)])
 
 
 @router.get("/{cycle_id}/preview")
